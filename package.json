@@ -1,0 +1,87 @@
+{
+  "name": "i18n-ai-extractor",
+  "displayName": "I18n AI Extractor",
+  "description": "AI-powered locale key extraction",
+  "version": "0.0.1",
+  "publisher": "iduane@126.com",
+  "icon": "OIG4.jpeg",
+  "repository": "https://github.com/iduane/i18n-ai-extractor",
+  "homepage": "https://github.com/iduane/i18n-ai-extractor",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:html"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "extension.extractLocale",
+        "title": "Extract locale"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "extension.extractLocale",
+        "key": "ctrl+alt+y",
+        "mac": "cmd+alt+y",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "I18n AI Extractor",
+      "properties": {
+        "i18nAiExtractor.localePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to your locale file (relative to workspace root)"
+        },
+        "i18nAiExtractor.openAIApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your OpenAI API key"
+        },
+        "i18nAiExtractor.openAIBasePath": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "Base path for OpenAI API"
+        },
+        "i18nAiExtractor.chatTemplate": {
+          "type": "string",
+          "default": "",
+          "description": "Custom template for OpenAI chat prompt. Use {{text}} as a placeholder for the selected text."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.js",
+    "compile": "node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "vscode:prepublish": "npm run package",
+    "package": "node esbuild.js --production"
+  },
+  "devDependencies": {
+    "@types/glob": "^7.1.3",
+    "@types/mocha": "^8.2.2",
+    "@types/node": "14.x",
+    "@types/vscode": "^1.60.0",
+    "esbuild": "^0.23.1",
+    "eslint": "^7.27.0"
+  },
+  "dependencies": {
+    "@google-cloud/speech": "^6.7.0",
+    "axios": "^1.7.5",
+    "node-record-lpcm16": "^1.0.1"
+  }
+}
