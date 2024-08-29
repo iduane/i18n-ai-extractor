@@ -420,6 +420,14 @@ async function updateLocaleFile(
       confirmedKey = modifiedKey;
     }
 
+    if (localeData[confirmedKey]) {
+      if (localeData[confirmedKey] !== translation) {
+        vscode.window.showErrorMessage(
+          `The entered i18n key were taken by another occurrence: ${localeData[confirmedKey]}`
+        );
+      }
+      return;
+    }
     localeData[confirmedKey] = translation;
     await fs.writeFile(filePath, JSON.stringify(localeData, null, 2), "utf8");
     vscode.window.showInformationMessage(
@@ -702,7 +710,7 @@ function findTextLineNumber(text, fileLines, i18nFunctionName) {
       `${i18nFunctionName}\\s*\\(\\s*['"][^'"]*${text.replace(
         /[.*+?^${}()|[\]\\]/g,
         "\\$&"
-      )}['"]\\s*\\)`
+      )}['"]\\s*[,\\)]`
     );
 
     if (i18nRegex.test(surroundingLines)) {

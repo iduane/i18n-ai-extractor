@@ -1,6 +1,7 @@
 # i18n-ai-extractor README
 
-This is a VS Code extension that uses AI to extract locale keys from your code.
+This VS Code extension utilizes AI to extract locale keys from your code, specifically designed for projects with hard-coded strings looking to transition to i18n. The extension assists in identifying all hard-coded strings and replacing them with locale keys.
+It leverages AI to scan the source file, detecting unlocalized text and suggesting corresponding i18n keys for users.
 
 ## Features
 
@@ -8,16 +9,9 @@ This is a VS Code extension that uses AI to extract locale keys from your code.
 
 ## TODO
 
-- [ ] Define criteria for identifying un-localized text
-- [ ] Select tools or scripts for scanning source files
-- [ ] Create a list of source files to be scanned
-- [ ] Implement the scanning process
-- [ ] Review and categorize identified un-localized text
-- [ ] Document findings and create a report
-- [ ] Plan for localization of identified text
-- [ ] Set deadlines for each step
-- [ ] Assign team members to specific tasks
-- [ ] Schedule a follow-up meeting to discuss progress
+- [ ] CMD+Click to navigate to the i18n key
+- [ ] Support various locale file structures and key paths
+- [ ] Code hint for directly inputting i18n keys
 
 ## License
 
