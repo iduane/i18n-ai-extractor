@@ -25,6 +25,10 @@
       {
         "command": "extension.extractLocale",
         "title": "Extract locale"
+      },
+      {
+        "command": "extension.openLocaleFile",
+        "title": "Open Locale File at I18n Key"
       }
     ],
     "keybindings": [
@@ -33,6 +37,12 @@
         "key": "ctrl+alt+y",
         "mac": "cmd+alt+y",
         "when": "editorHasSelection"
+      },
+      {
+        "command": "extension.openLocaleFile",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "editorHasSelection || editorTextFocus"
       }
     ],
     "configuration": {

@@ -17,7 +17,7 @@ function activate(context) {
       const unquotedText = text.replace(/^['"]|['"]$/g, "");
 
       if (!text) {
-        vscode.window.showErrorMessage("No text selected.");
+        vscode.window.showErrorMessage("No text found.");
         return;
       }
 
@@ -64,6 +64,72 @@ function activate(context) {
           );
         });
       }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("extension.openLocaleFile", async () => {
+      // Create an output channel
+      // const outputChannel = vscode.window.createOutputChannel("i18n AI Extractor");
+
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("No active text editor found.");
+        return;
+      }
+
+      const selection = editor.selection;
+      let text;
+      // outputChannel.appendLine(`Selection starts at line: ${selection.start.line}, character: ${selection.start.character}`);
+      // outputChannel.appendLine(`Selection ends at line: ${selection.end.line}, character: ${selection.end.character}`);
+      // outputChannel.appendLine(`Selected text: ${editor.document.getText(selection)}`);
+      // outputChannel.show(); // This will make the output channel visible
+
+      if (selection.start.line === selection.end.line && selection.start.character === selection.end.character) {
+        const line = editor.document.lineAt(selection.active.line);
+        text = line.text.trim();
+      } else {
+        text = editor.document.getText(selection);
+      }
+
+      const i18nKeyMatch = text.match(/i18next\.t\(['"](.+?)['"]\)/);
+
+      if (!i18nKeyMatch) {
+        vscode.window.showErrorMessage(
+          "No i18n expression found."
+        );
+        return;
+      }
+
+      const i18nKey = i18nKeyMatch[1];
+      const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+      const localePath = config.get("localePath", "");
+
+      if (!localePath) {
+        vscode.window.showErrorMessage("Locale file path not configured.");
+        return;
+      }
+
+      const fullPath = path.join(
+        vscode.workspace.workspaceFolders[0].uri.fsPath,
+        localePath
+      );
+      const fileName = path.basename(fullPath, path.extname(fullPath));
+      const key = i18nKey.replace(fileName + ".", "");
+      const lineNumber = await findKeyLineNumber(fullPath, key);
+
+      if (lineNumber === -1) {
+        vscode.window.showErrorMessage(
+          `Key "${i18nKey}" not found in locale file.`
+        );
+        return;
+      }
+
+      const uri = vscode.Uri.file(fullPath);
+      const position = new vscode.Position(lineNumber, 0);
+      await vscode.window.showTextDocument(uri, {
+        selection: new vscode.Range(position, position),
+      });
     })
   );
 }
@@ -114,7 +180,7 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
   );
 
   const defaultTemplate =
-    'Suggest a concise i18n key for this text: "{{text}}", just a key, no dotted combination paths, as simple as possible, use underline for multiple word keys, no explanation, no nothing, just the key.';
+    'Suggest a concise i18n key for this text: "{{text}}", just a key, no dotted combination paths, as simple as possible, prefer to use lower case for no abbr words, use underline for multiple word keys, no explanation, no nothing, just the key.';
   const template = chatTemplate || defaultTemplate;
   const prompt = template.replace("{{text}}", text);
 
@@ -145,6 +211,22 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
   } catch (error) {
     console.error("Error suggesting key with OpenAI:", error);
     return "";
+  }
+}
+
+async function findKeyLineNumber(filePath, key) {
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    const lines = String(content).split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(`"${key}"`)) {
+        return i;
+      }
+    }
+    return -1;
+  } catch (error) {
+    console.error("Error reading locale file:", error);
+    return -1;
   }
 }
 
