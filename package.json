@@ -4,7 +4,7 @@
   "description": "AI-powered locale key extraction",
   "version": "0.0.1",
   "publisher": "iduane@126.com",
-  "icon": "OIG4.jpeg",
+  "icon": "OIG4.png",
   "repository": "https://github.com/iduane/i18n-ai-extractor",
   "homepage": "https://github.com/iduane/i18n-ai-extractor",
   "license": "MIT",
@@ -40,7 +40,7 @@
         "command": "extension.extractLocale",
         "key": "ctrl+alt+y",
         "mac": "cmd+alt+y",
-        "when": "editorHasSelection"
+        "when": "editorHasSelection || editorTextFocus"
       },
       {
         "command": "extension.openLocaleFile",

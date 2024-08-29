@@ -1,3 +1,5 @@
+import { readFileSync } from "fs";
+
 const vscode = require("vscode");
 const fs = require("fs").promises;
 const path = require("path");
@@ -9,73 +11,206 @@ function activate(context) {
   outputChannel = vscode.window.createOutputChannel("i18n AI Extractor");
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("extension.extractLocale", async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage("No active text editor found.");
-        return;
-      }
+    vscode.commands.registerCommand(
+      "extension.extractLocale",
+      async (text, line, requireConfirmation = true) => {
+        let editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          editor =
+            vscode.window.visibleTextEditors[
+              vscode.window.visibleTextEditors.length - 1
+            ];
+        }
+        if (!editor && (line === -1 || typeof line === "undefined")) {
+          vscode.window.showErrorMessage("No active text editor found.");
+          return;
+        }
+        if (!text) {
+          const selection = editor.selection;
+          if (!selection.isEmpty) {
+            text = editor.document.getText(selection);
+          } else {
+            // If there's no selection, try fetch the highlight sentence under the cursor
+            const position = editor.selection.active;
+            const lineText = editor.document.lineAt(position.line).text;
+            const sentenceRange = getSentenceRange(
+              lineText,
+              position.character
+            );
 
-      const selection = editor.selection;
-      const text = editor.document.getText(selection);
-      const unquotedText = text.replace(/^['"]|['"]$/g, "");
+            if (sentenceRange) {
+              text = lineText.substring(sentenceRange.start, sentenceRange.end);
+            } else {
+              vscode.window.showErrorMessage(
+                "No sentence found at cursor position."
+              );
+              return;
+            }
+          }
+        }
+        const unquotedText = text.replace(/^['"]|['"]$/g, "");
 
-      if (!text) {
-        vscode.window.showErrorMessage("No text found.");
-        return;
-      }
+        const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+        const localePath = config.get("localePath", "");
+        const openAIApiKey = config.get("openAIApiKey", "");
+        const chatTemplate = config.get("chatTemplate", "");
 
-      const config = vscode.workspace.getConfiguration("i18nAiExtractor");
-      const localePath = config.get("localePath", "");
-      const openAIApiKey = config.get("openAIApiKey", "");
-      const chatTemplate = config.get("chatTemplate", "");
-
-      if (!localePath) {
-        vscode.window.showErrorMessage(
-          "Locale file path not configured. Please set i18nAiExtractor.localePath in settings."
-        );
-        return;
-      }
-
-      let suggestedKey = "";
-      if (openAIApiKey) {
-        suggestedKey = await suggestKeyWithOpenAI(
-          unquotedText,
-          openAIApiKey,
-          chatTemplate
-        );
-      }
-
-      const key = suggestedKey.replace(/^['"]|['"]$/g, "");
-      // const key = await vscode.window.showInputBox({
-      //   prompt: "Enter the i18n key",
-      //   value: suggestedKey,
-      // });
-
-      if (!key) return;
-
-      const fullPath = path.join(
-        vscode.workspace.workspaceFolders[0].uri.fsPath,
-        localePath
-      );
-      const updatedKey = await updateLocaleFile(fullPath, key, unquotedText);
-      if (updatedKey) {
-        editor.edit((editBuilder) => {
-          const fileName = path.basename(fullPath, path.extname(fullPath));
-          editBuilder.replace(
-            selection,
-            `i18next.t('${fileName}.${updatedKey}')`
+        if (!localePath) {
+          vscode.window.showErrorMessage(
+            "Locale file path not configured. Please set i18nAiExtractor.localePath in settings."
           );
-        });
+          return;
+        }
+
+        let suggestedKey = "";
+        if (openAIApiKey) {
+          suggestedKey = await suggestKeyWithOpenAI(
+            unquotedText,
+            openAIApiKey,
+            chatTemplate
+          );
+        }
+
+        const key = suggestedKey.replace(/^['"]|['"]$/g, "");
+
+        if (!key) return;
+
+        const fullPath = path.join(
+          vscode.workspace.workspaceFolders[0].uri.fsPath,
+          localePath
+        );
+        const updatedKey = await updateLocaleFile(
+          fullPath,
+          key,
+          unquotedText,
+          requireConfirmation
+        );
+        const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
+        if (updatedKey) {
+          const fileName = path.basename(fullPath, path.extname(fullPath));
+          let replacement = `${i18nFunctionName}('${fileName}.${updatedKey}')`;
+
+          if (line > -1) {
+            // Replace the text in the editor
+            const lineText = editor.document.lineAt(line).text;
+            const startIndex = lineText.indexOf(text);
+
+            if (startIndex !== -1) {
+              let rangeStart = startIndex;
+              let rangeEnd = startIndex + text.length;
+
+              // Check for quotes before and after the text
+              if (
+                lineText[rangeStart - 1] === '"' ||
+                lineText[rangeStart - 1] === "'"
+              ) {
+                rangeStart--;
+              }
+              if (lineText[rangeEnd] === '"' || lineText[rangeEnd] === "'") {
+                rangeEnd++;
+              }
+
+              if (
+                lineText[rangeStart - 1] === ">" ||
+                lineText[rangeEnd + 1] === "<"
+              ) {
+                replacement = `{${replacement}}`;
+              }
+
+              const range = new vscode.Range(
+                new vscode.Position(line, rangeStart),
+                new vscode.Position(line, rangeEnd)
+              );
+              editor.edit((editBuilder) => {
+                editBuilder.replace(range, replacement);
+              });
+            }
+          } else {
+            // Replace the selected text
+            if (editor.selection.isEmpty) {
+              // use sentence range instead of selection
+              const position = editor.selection.active;
+              const lineText = editor.document.lineAt(position.line).text;
+              const sentenceRange = getSentenceRange(
+                lineText,
+                position.character
+              );
+              if (sentenceRange) {
+                let rangeStart = sentenceRange.start;
+                let rangeEnd = sentenceRange.end;
+
+                // Expand the range if the text has quotes
+                if (
+                  lineText[rangeStart - 1] === '"' ||
+                  lineText[rangeStart - 1] === "'"
+                ) {
+                  rangeStart--;
+                }
+                if (lineText[rangeEnd] === '"' || lineText[rangeEnd] === "'") {
+                  rangeEnd++;
+                }
+                if (
+                  lineText[rangeStart - 1] === ">" ||
+                  lineText[rangeEnd + 1] === "<"
+                ) {
+                  replacement = `{${replacement}}`;
+                }
+
+                const range = new vscode.Range(
+                  new vscode.Position(position.line, rangeStart),
+                  new vscode.Position(position.line, rangeEnd)
+                );
+
+                editor.edit((editBuilder) => {
+                  editBuilder.replace(range, replacement);
+                });
+              } else {
+                vscode.window.showErrorMessage(
+                  "No valid sentence found at cursor position."
+                );
+              }
+            } else {
+              editor.edit((editBuilder) => {
+                let range = editor.selection;
+                const lineText = editor.document.lineAt(range.start.line).text;
+
+                // Expand the range if the text has quotes
+                let startChar = range.start.character;
+                let endChar = range.end.character;
+
+                if (
+                  lineText[startChar - 1] === '"' ||
+                  lineText[startChar - 1] === "'"
+                ) {
+                  startChar--;
+                }
+                if (lineText[endChar] === '"' || lineText[endChar] === "'") {
+                  endChar++;
+                }
+
+                if (
+                  lineText[startChar - 1] === ">" ||
+                  lineText[endChar + 1] === "<"
+                ) {
+                  replacement = `{${replacement}}`;
+                }
+
+                range = new vscode.Selection(
+                  new vscode.Position(range.start.line, startChar),
+                  new vscode.Position(range.end.line, endChar)
+                );
+
+                editBuilder.replace(range, replacement);
+              });
+            }
+          }
+        }
       }
-    })
+    )
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("extension.openLocaleFile", async () => {
-      // Create an output channel
-      // const outputChannel = vscode.window.createOutputChannel("i18n AI Extractor");
-
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showErrorMessage("No active text editor found.");
@@ -84,12 +219,11 @@ function activate(context) {
 
       const selection = editor.selection;
       let text;
-      // outputChannel.appendLine(`Selection starts at line: ${selection.start.line}, character: ${selection.start.character}`);
-      // outputChannel.appendLine(`Selection ends at line: ${selection.end.line}, character: ${selection.end.character}`);
-      // outputChannel.appendLine(`Selected text: ${editor.document.getText(selection)}`);
-      // outputChannel.show(); // This will make the output channel visible
 
-      if (selection.start.line === selection.end.line && selection.start.character === selection.end.character) {
+      if (
+        selection.start.line === selection.end.line &&
+        selection.start.character === selection.end.character
+      ) {
         const line = editor.document.lineAt(selection.active.line);
         text = line.text.trim();
       } else {
@@ -99,9 +233,7 @@ function activate(context) {
       const i18nKeyMatch = text.match(/i18next\.t\(['"](.+?)['"]\)/);
 
       if (!i18nKeyMatch) {
-        vscode.window.showErrorMessage(
-          "No i18n expression found."
-        );
+        vscode.window.showErrorMessage("No i18n expression found.");
         return;
       }
 
@@ -138,71 +270,129 @@ function activate(context) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("extension.scanForUnlocalizedText", async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage("No active text editor found.");
-        return;
-      }
-
-      const document = editor.document;
-      const text = document.getText();
-      const config = vscode.workspace.getConfiguration("i18nAiExtractor");
-      const unlocalizedTexts = await findUnlocalizedText(text, config);
-
-      if (unlocalizedTexts.length === 0) {
-        vscode.window.showInformationMessage("No unlocalized text found in the current file.");
-        return;
-      }
-
-      // Close existing webview if it exists
-      if (global.unlocalizedTextPanel) {
-        global.unlocalizedTextPanel.dispose();
-      }
-
-      // Create and show a new webview
-      const panel = vscode.window.createWebviewPanel(
-        'unlocalizedText',
-        'Unlocalized Text',
-        vscode.ViewColumn.Beside,
-        {
-          enableScripts: true
+    vscode.commands.registerCommand(
+      "extension.scanForUnlocalizedText",
+      async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+          vscode.window.showErrorMessage("No active text editor found.");
+          return;
         }
-      );
 
-      // Store the panel reference globally
-      global.unlocalizedTextPanel = panel;
+        const document = editor.document;
+        const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+        const maxRequestSize = config.get("maxRequestSize", 20000);
 
-      // Generate HTML content for the webview
-      panel.webview.html = getWebviewContent(unlocalizedTexts, config);
+        let text;
+        let selection = editor.selection;
 
-      // Handle messages from the webview
-      panel.webview.onDidReceiveMessage(
-        message => {
-          switch (message.command) {
-            case 'jumpToLine':
-              const position = new vscode.Position(message.line, 0);
-              editor.selection = new vscode.Selection(position, position);
-              editor.revealRange(new vscode.Range(position, position));
-              return;
-            case 'showInfo':
-              vscode.window.showInformationMessage(message.text);
-              return;
+        // If there's no selection, use the entire document
+        if (selection.isEmpty) {
+          text = document.getText();
+          if (text.length > maxRequestSize) {
+            const choice = await vscode.window.showWarningMessage(
+              `The entire file (${text.length} characters) exceeds the maximum request size of ${maxRequestSize} characters. Would you like to select a portion of the code?`,
+              "Select Portion",
+              "Proceed Anyway",
+              "Cancel"
+            );
+
+            if (choice === "Select Portion") {
+              // Allow user to make a selection
+              const newSelection = await vscode.window.showTextDocument(
+                document,
+                { selection: new vscode.Selection(0, 0, 0, 0) }
+              );
+              if (newSelection) {
+                selection = editor.selection;
+                text = document.getText(selection);
+              } else {
+                return; // User cancelled the selection
+              }
+            } else if (choice === "Cancel") {
+              return; // User cancelled the operation
+            }
+            // If "Proceed Anyway", we'll use the entire text as is
           }
-        },
-        undefined,
-        context.subscriptions
-      );
+        } else {
+          text = document.getText(selection);
+        }
 
-      // Add event listener for panel disposal
-      panel.onDidDispose(() => {
-        global.unlocalizedTextPanel = undefined;
-      }, null, context.subscriptions);
-    })
+        const unlocalizedTexts = await findUnlocalizedText(text, config);
+
+        if (unlocalizedTexts.length === 0) {
+          vscode.window.showInformationMessage(
+            "No unlocalized text found in the current file."
+          );
+          return;
+        }
+
+        // Close existing webview if it exists
+        if (global.unlocalizedTextPanel) {
+          global.unlocalizedTextPanel.dispose();
+        }
+
+        // Create and show a new webview
+        const panel = vscode.window.createWebviewPanel(
+          "unlocalizedText",
+          "Unlocalized Text",
+          vscode.ViewColumn.Beside,
+          {
+            enableScripts: true,
+            localResourceRoots: [
+              vscode.Uri.joinPath(context.extensionUri, "media"),
+            ],
+          }
+        );
+
+        // Store the panel reference globally
+        global.unlocalizedTextPanel = panel;
+
+        // Generate HTML content for the webview
+        panel.webview.html = getWebviewContent(
+          unlocalizedTexts,
+          config,
+          panel.webview,
+          context
+        );
+
+        // Handle messages from the webview
+        panel.webview.onDidReceiveMessage(
+          async (message) => {
+            switch (message.command) {
+              case "jumpToLine":
+                const position = new vscode.Position(message.line, 0);
+                editor.selection = new vscode.Selection(position, position);
+                editor.revealRange(new vscode.Range(position, position));
+                return;
+              case "showInfo":
+                vscode.window.showInformationMessage(message.text);
+                return;
+            }
+          },
+          undefined,
+          context.subscriptions
+        );
+
+        // Add event listener for panel disposal
+        panel.onDidDispose(
+          () => {
+            global.unlocalizedTextPanel = undefined;
+          },
+          null,
+          context.subscriptions
+        );
+      }
+    )
   );
 }
 
-async function updateLocaleFile(filePath, key, translation) {
+async function updateLocaleFile(
+  filePath,
+  key,
+  translation,
+  requireConfirmation = true
+) {
   try {
     let localeData = {};
     try {
@@ -219,19 +409,23 @@ async function updateLocaleFile(filePath, key, translation) {
     }
 
     // Allow user to modify the key
-    const modifiedKey = await vscode.window.showInputBox({
-      prompt: "Confirm or modify the i18n key",
-      value: key,
-    });
+    let confirmedKey = key;
+    if (requireConfirmation) {
+      const modifiedKey = await vscode.window.showInputBox({
+        prompt: "Confirm or modify the i18n key",
+        value: key,
+      });
 
-    if (!modifiedKey) return null;
+      if (!modifiedKey) return null;
+      confirmedKey = modifiedKey;
+    }
 
-    localeData[modifiedKey] = translation;
+    localeData[confirmedKey] = translation;
     await fs.writeFile(filePath, JSON.stringify(localeData, null, 2), "utf8");
     vscode.window.showInformationMessage(
-      `Translation added for key: ${modifiedKey}`
+      `Translation added for key: ${confirmedKey}`
     );
-    return modifiedKey;
+    return confirmedKey;
   } catch (error) {
     vscode.window.showErrorMessage(
       `Error updating locale file: ${error.message}`
@@ -252,46 +446,51 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
   const template = chatTemplate || defaultTemplate;
   const prompt = template.replace("{{text}}", text);
 
-  return await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification,
-    title: "Suggesting i18n key",
-    cancellable: false
-  }, async (progress) => {
-    progress.report({ increment: 0 });
+  return await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Suggesting i18n key",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 0 });
 
-    try {
-      progress.report({ increment: 50, message: "Querying OpenAI..." });
-      const response = await axios.post(
-        `${openAIBasePath}/chat/completions`,
-        {
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a helpful assistant that suggests concise i18n keys for given text.",
-            },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 50,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
+      try {
+        progress.report({ increment: 50, message: "Querying OpenAI..." });
+        const response = await axios.post(
+          `${openAIBasePath}/chat/completions`,
+          {
+            model: "gpt-3.5-turbo",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a helpful assistant that suggests concise i18n keys for given text.",
+              },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 50,
           },
-        }
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
 
-      progress.report({ increment: 50, message: "Processing response..." });
-      const suggestedKey = response.data.choices[0].message.content.trim();
-      return suggestedKey;
-    } catch (error) {
-      console.error("Error suggesting key with OpenAI:", error);
-      vscode.window.showErrorMessage(`Error suggesting i18n key: ${error.message}`);
-      return "";
+        progress.report({ increment: 50, message: "Processing response..." });
+        const suggestedKey = response.data.choices[0].message.content.trim();
+        return suggestedKey;
+      } catch (error) {
+        console.error("Error suggesting key with OpenAI:", error);
+        vscode.window.showErrorMessage(
+          `Error suggesting i18n key: ${error.message}`
+        );
+        return "";
+      }
     }
-  });
+  );
 }
 
 async function findKeyLineNumber(filePath, key) {
@@ -312,16 +511,30 @@ async function findKeyLineNumber(filePath, key) {
 
 async function findUnlocalizedText(text, config) {
   const openAIApiKey = config.get("openAIApiKey", "");
-  const openAIBasePath = config.get("openAIBasePath", "https://api.openai.com/v1");
+  const openAIBasePath = config.get(
+    "openAIBasePath",
+    "https://api.openai.com/v1"
+  );
   const unlocalizedTextPrompt = config.get("unlocalizedTextPrompt", "");
   const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
+  const maxRequestSize = config.get("maxRequestSize", 20000);
 
   if (!openAIApiKey) {
-    vscode.window.showErrorMessage("OpenAI API key not configured. Please set i18nAiExtractor.openAIApiKey in settings.");
+    vscode.window.showErrorMessage(
+      "OpenAI API key not configured. Please set i18nAiExtractor.openAIApiKey in settings."
+    );
     return [];
   }
 
-  const defaultPrompt = `${text}
+  const trimmedText = trimCode(text, maxRequestSize);
+
+  if (trimmedText.length >= maxRequestSize) {
+    vscode.window.showWarningMessage(
+      `The selected text has been trimmed to ${maxRequestSize} characters to fit within the request size limit.`
+    );
+  }
+
+  const defaultPrompt = `${trimmedText}
 
   Analyze the provided code and extract all user-facing English text that requires translation for internationalization. Include:
   
@@ -349,85 +562,105 @@ async function findUnlocalizedText(text, config) {
     ...
   ]`;
 
-  const prompt = unlocalizedTextPrompt ? unlocalizedTextPrompt.replace("{{text}}", text) : defaultPrompt;
+  const prompt = unlocalizedTextPrompt
+    ? unlocalizedTextPrompt.replace("{{text}}", text)
+    : defaultPrompt;
 
-  return await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification,
-    title: "Scanning for unlocalized text",
-    cancellable: false
-  }, async (progress) => {
-    progress.report({ increment: 0 });
+  return await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Scanning for unlocalized text",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 0 });
 
-    try {
-      progress.report({ increment: 50, message: "Analyzing with OpenAI..." });
-      const response = await axios.post(
-        `${openAIBasePath}/chat/completions`,
-        {
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful assistant that identifies unlocalized text in source code.",
-            },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 1000,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${openAIApiKey}`,
-            "Content-Type": "application/json",
+      try {
+        progress.report({ increment: 50, message: "Analyzing with OpenAI..." });
+        const response = await axios.post(
+          `${openAIBasePath}/chat/completions`,
+          {
+            model: "gpt-3.5-turbo",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a helpful assistant that identifies unlocalized text in source code.",
+              },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 1000,
           },
-        }
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${openAIApiKey}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
 
-      progress.report({ increment: 40, message: "Processing results..." });
-      const aiOutput = response.data.choices[0].message.content.trim();
-      
-      // Show AI response in output panel
-      outputChannel.appendLine("AI Response:");
-      outputChannel.appendLine(aiOutput);
-      outputChannel.show();
+        progress.report({ increment: 40, message: "Processing results..." });
+        const aiOutput = response.data.choices[0].message.content.trim();
 
-      const unlocalizedTexts = parseAIOutput(aiOutput, text, config);
+        // Show AI response in output panel
+        outputChannel.appendLine("AI Response:");
+        outputChannel.appendLine(aiOutput);
+        outputChannel.show();
 
-      progress.report({ increment: 10, message: "Done" });
-      return unlocalizedTexts;
-    } catch (error) {
-      console.error("Error detecting unlocalized text with OpenAI:", error);
-      vscode.window.showErrorMessage(`Error detecting unlocalized text: ${error.message}`);
-      return [];
+        const unlocalizedTexts = parseAIOutput(aiOutput, text, config);
+
+        progress.report({ increment: 10, message: "Done" });
+        return unlocalizedTexts;
+      } catch (error) {
+        console.error("Error detecting unlocalized text with OpenAI:", error);
+        vscode.window.showErrorMessage(
+          `Error detecting unlocalized text: ${error.message}`
+        );
+        return [];
+      }
     }
-  });
+  );
 }
 
 function parseAIOutput(aiOutput, fileContent, config) {
   const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
-  const fileLines = fileContent.split('\n');
+  const fileLines = fileContent.split("\n");
   let unlocalizedTexts = [];
 
   console.log("AI Response:", aiOutput);
 
   try {
     // Remove potential code block markers and trim
-    const cleanedOutput = aiOutput.replace(/```json\n?|```\n?/g, '').trim();
-    
+    const cleanedOutput = aiOutput.replace(/```json\n?|```\n?/g, "").trim();
+
     // Parse the JSON array from the AI output
     const parsedOutput = JSON.parse(cleanedOutput);
 
     console.log("Parsed AI Output:", JSON.stringify(parsedOutput, null, 2));
 
     // Process each item in the parsed array
-    unlocalizedTexts = parsedOutput.map(item => {
-      const result = {
-        line: findTextLineNumber(item.text, fileLines, i18nFunctionName),
-        text: item.text
-      };
-      console.log("Processed item:", JSON.stringify(result, null, 2));
-      return result;
-    }).filter(item => item.line !== -2);
+    unlocalizedTexts = parsedOutput
+      .map((item) => {
+        const result = {
+          line: findTextLineNumber(item.text, fileLines, i18nFunctionName),
+          text: item.text,
+        };
+        console.log("Processed item:", JSON.stringify(result, null, 2));
+        return result;
+      })
+      .filter((item) => item.line !== -2)
+      .filter(
+        (item, index, self) =>
+          index ===
+          self.findIndex(
+            (t) => t.text === item.text // Compare text property for duplicates
+          )
+      );
 
-    console.log("Final unlocalized texts:", JSON.stringify(unlocalizedTexts, null, 2));
+    console.log(
+      "Final unlocalized texts:",
+      JSON.stringify(unlocalizedTexts, null, 2)
+    );
   } catch (error) {
     console.error("Error parsing AI output:", error);
     vscode.window.showErrorMessage(`Error parsing AI output: ${error.message}`);
@@ -440,7 +673,10 @@ function findTextLineNumber(text, fileLines, i18nFunctionName) {
   // First, try to find the text enclosed in quotes
   let matchLine = -1;
   for (let i = 0; i < fileLines.length; i++) {
-    if (fileLines[i].includes(`"${text}"`) || fileLines[i].includes(`'${text}'`)) {
+    if (
+      fileLines[i].includes(`"${text}"`) ||
+      fileLines[i].includes(`'${text}'`)
+    ) {
       matchLine = i;
       break;
     }
@@ -456,21 +692,53 @@ function findTextLineNumber(text, fileLines, i18nFunctionName) {
     }
   }
 
-  // scan the matched line, if it's inside i18nFunctionName(''), return -2
-  if (matchLine > -1 && fileLines[matchLine].includes(`${i18nFunctionName}('${text}')`)) {
-    return -2;
+  if (matchLine > -1) {
+    // Check for multi-line i18n function call
+    const surroundingLines = fileLines
+      .slice(Math.max(0, matchLine - 2), matchLine + 3)
+      .join("\n");
+    // const i18nRegex = new RegExp(`${i18nFunctionName}\\s*\\(\\s*['"]${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]\\s*\\)`);
+    const i18nRegex = new RegExp(
+      `${i18nFunctionName}\\s*\\(\\s*['"][^'"]*${text.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      )}['"]\\s*\\)`
+    );
+
+    if (i18nRegex.test(surroundingLines)) {
+      return -2;
+    }
+
+    // Check for console.log, console.debug, and log.dev.debug
+    const logRegex = new RegExp(
+      `(console\\.log|console\\.debug|log\\.dev\\.debug)\\s*\\([^)]*${text.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      )}[^)]*\\)`
+    );
+    if (logRegex.test(surroundingLines)) {
+      return -2;
+    }
   }
 
   return matchLine;
 }
 
-function getWebviewContent(unlocalizedTexts, config) {
+function getWebviewContent(unlocalizedTexts, config, webview, context) {
   const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
-  
+
+  // read svg from OIG4.svg to string
+  const iconContent = readFileSync(
+    path.join(context.extensionPath, "OIG4.svg"),
+    "utf8"
+  );
+
   // Separate known and possible occurrences
-  const knownOccurrences = unlocalizedTexts.filter(item => item.line !== -1);
-  const possibleOccurrences = unlocalizedTexts.filter(item => item.line === -1);
-  
+  const knownOccurrences = unlocalizedTexts.filter((item) => item.line !== -1);
+  const possibleOccurrences = unlocalizedTexts.filter(
+    (item) => item.line === -1
+  );
+
   return `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -480,37 +748,71 @@ function getWebviewContent(unlocalizedTexts, config) {
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="bg-gray-100 p-6">
-    <h2 class="text-2xl font-bold mb-6 text-gray-800">Unlocalized Text</h2>
+    <div class="flex items-center mb-6">
+      ${iconContent}
+      <h2 class="ml-2 text-2xl font-bold text-gray-800">Unlocalized Text</h2>
+    </div>
     <div class="space-y-4">
-      ${knownOccurrences.map((item, index) => `
-        <div class="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition duration-300 ease-in-out cursor-pointer" onclick="jumpToLine(${item.line})">
+      ${knownOccurrences
+        .map(
+          (item, index) => `
+        <div class="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition duration-300 ease-in-out cursor-pointer" data-action="jumpToLine" data-line="${
+          item.line
+        }" data-text="${item.text}">
           <div class="flex justify-between items-center mb-2">
-            <strong class="text-lg text-cyan-600">${index + 1}. Line ${item.line + 1}</strong>
+            <h3 class="text-lg font-semibold text-gray-800 truncate flex-grow">${
+              item.text
+            }</h3>
+            <span class="text-sm text-gray-500 ml-2 whitespace-nowrap">Line ${
+              item.line + 1
+            }</span>
           </div>
-          <p class="text-gray-700">${item.text}</p>
         </div>
-      `).join('')}
+      `
+        )
+        .join("")}
       
-      ${possibleOccurrences.length > 0 ? `
+      ${
+        possibleOccurrences.length > 0
+          ? `
         <h3 class="text-xl font-semibold mt-8 mb-4 text-gray-700">Possible Occurrences</h3>
-        ${possibleOccurrences.map((item, index) => `
+        ${possibleOccurrences
+          .map(
+            (item, index) => `
           <div class="bg-gray-200 rounded-lg shadow-md p-4 hover:shadow-lg transition duration-300 ease-in-out">
             <div class="flex justify-between items-center mb-2">
-              <strong class="text-lg text-gray-600">Possible ${index + 1}</strong>
+              <h3 class="text-lg font-semibold text-gray-800 truncate flex-grow">${
+                item.text
+              }</h3>
+              <span class="text-sm text-gray-500 ml-2 whitespace-nowrap">Possible ${
+                index + 1
+              }</span>
             </div>
-            <p class="text-gray-700">${item.text}</p>
           </div>
-        `).join('')}
-      ` : ''}
+        `
+          )
+          .join("")}
+      `
+          : ""
+      }
     </div>
     <script>
       const vscode = acquireVsCodeApi();
-      function jumpToLine(line) {
-        vscode.postMessage({
-          command: 'jumpToLine',
-          line: line
-        });
-      }
+      
+      document.body.addEventListener('click', function(event) {
+        let target = event.target;
+        while (target != null && !target.dataset.action) {
+          target = target.parentElement;
+        }
+        if (target && target.dataset.action === 'jumpToLine') {
+          vscode.postMessage({
+            command: 'jumpToLine',
+            line: parseInt(target.dataset.line),
+            text: target.dataset.text
+          });
+        }
+      });
+
       function copyI18nFunction(text) {
         const i18nFunction = \`${i18nFunctionName}('\${text}')\`;
         navigator.clipboard.writeText(i18nFunction).then(() => {
@@ -523,6 +825,55 @@ function getWebviewContent(unlocalizedTexts, config) {
     </script>
   </body>
   </html>`;
+}
+
+function trimCode(code, maxSize) {
+  const lines = code.split("\n");
+  const trimmedLines = [];
+  let currentSize = 0;
+
+  for (const line of lines) {
+    // Remove comments and trim
+    const trimmedLine = line.replace(/\/\/.*$/, "").trim();
+
+    // Skip empty lines
+    if (trimmedLine.length === 0) continue;
+
+    // Truncate long lines
+    const truncatedLine =
+      trimmedLine.length > 100
+        ? trimmedLine.substring(0, 97) + "..."
+        : trimmedLine;
+
+    // Check if adding this line would exceed the max size
+    if (currentSize + truncatedLine.length + 1 > maxSize) {
+      trimmedLines.push("// ... (truncated)");
+      break;
+    }
+
+    trimmedLines.push(trimmedLine);
+    currentSize += truncatedLine.length + 1; // +1 for newline
+  }
+
+  return trimmedLines.join("\n");
+}
+
+function getSentenceRange(lineText, cursorPosition) {
+  // Find the start and end of the potential content
+  let start = cursorPosition;
+  let end = cursorPosition;
+
+  while (start > 0 && /[\w+\s]/.test(lineText[start - 1])) {
+    start--;
+  }
+  while (end < lineText.length && /[\w+\s]/.test(lineText[end])) {
+    end++;
+  }
+
+  if (start === end) {
+    return null;
+  }
+  return { start, end };
 }
 
 function deactivate() {}
