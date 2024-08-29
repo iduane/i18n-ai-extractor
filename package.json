@@ -76,6 +76,11 @@
           "type": "string",
           "default": "",
           "description": "Custom prompt for unlocalized text scanning. Use {{text}} as a placeholder for the scanned text."
+        },
+        "i18nAiExtractor.i18nFunctionName": {
+          "type": "string",
+          "default": "i18next.t",
+          "description": "Name of the i18n function to use"
         }
       }
     }

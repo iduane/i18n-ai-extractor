@@ -3,7 +3,11 @@ const fs = require("fs").promises;
 const path = require("path");
 const axios = require("axios");
 
+let outputChannel;
+
 function activate(context) {
+  outputChannel = vscode.window.createOutputChannel("i18n AI Extractor");
+
   context.subscriptions.push(
     vscode.commands.registerCommand("extension.extractLocale", async () => {
       const editor = vscode.window.activeTextEditor;
@@ -143,11 +147,17 @@ function activate(context) {
 
       const document = editor.document;
       const text = document.getText();
-      const unlocalizedTexts = await findUnlocalizedText(text);
+      const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+      const unlocalizedTexts = await findUnlocalizedText(text, config);
 
       if (unlocalizedTexts.length === 0) {
         vscode.window.showInformationMessage("No unlocalized text found in the current file.");
         return;
+      }
+
+      // Close existing webview if it exists
+      if (global.unlocalizedTextPanel) {
+        global.unlocalizedTextPanel.dispose();
       }
 
       // Create and show a new webview
@@ -160,8 +170,11 @@ function activate(context) {
         }
       );
 
+      // Store the panel reference globally
+      global.unlocalizedTextPanel = panel;
+
       // Generate HTML content for the webview
-      panel.webview.html = getWebviewContent(unlocalizedTexts);
+      panel.webview.html = getWebviewContent(unlocalizedTexts, config);
 
       // Handle messages from the webview
       panel.webview.onDidReceiveMessage(
@@ -172,11 +185,19 @@ function activate(context) {
               editor.selection = new vscode.Selection(position, position);
               editor.revealRange(new vscode.Range(position, position));
               return;
+            case 'showInfo':
+              vscode.window.showInformationMessage(message.text);
+              return;
           }
         },
         undefined,
         context.subscriptions
       );
+
+      // Add event listener for panel disposal
+      panel.onDidDispose(() => {
+        global.unlocalizedTextPanel = undefined;
+      }, null, context.subscriptions);
     })
   );
 }
@@ -231,34 +252,46 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
   const template = chatTemplate || defaultTemplate;
   const prompt = template.replace("{{text}}", text);
 
-  try {
-    const response = await axios.post(
-      `${openAIBasePath}/chat/completions`,
-      {
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a helpful assistant that suggests concise i18n keys for given text.",
-          },
-          { role: "user", content: prompt },
-        ],
-        max_tokens: 50,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+  return await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    title: "Suggesting i18n key",
+    cancellable: false
+  }, async (progress) => {
+    progress.report({ increment: 0 });
 
-    return response.data.choices[0].message.content.trim();
-  } catch (error) {
-    console.error("Error suggesting key with OpenAI:", error);
-    return "";
-  }
+    try {
+      progress.report({ increment: 50, message: "Querying OpenAI..." });
+      const response = await axios.post(
+        `${openAIBasePath}/chat/completions`,
+        {
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a helpful assistant that suggests concise i18n keys for given text.",
+            },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 50,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      progress.report({ increment: 50, message: "Processing response..." });
+      const suggestedKey = response.data.choices[0].message.content.trim();
+      return suggestedKey;
+    } catch (error) {
+      console.error("Error suggesting key with OpenAI:", error);
+      vscode.window.showErrorMessage(`Error suggesting i18n key: ${error.message}`);
+      return "";
+    }
+  });
 }
 
 async function findKeyLineNumber(filePath, key) {
@@ -277,11 +310,11 @@ async function findKeyLineNumber(filePath, key) {
   }
 }
 
-async function findUnlocalizedText(text) {
-  const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+async function findUnlocalizedText(text, config) {
   const openAIApiKey = config.get("openAIApiKey", "");
   const openAIBasePath = config.get("openAIBasePath", "https://api.openai.com/v1");
   const unlocalizedTextPrompt = config.get("unlocalizedTextPrompt", "");
+  const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
 
   if (!openAIApiKey) {
     vscode.window.showErrorMessage("OpenAI API key not configured. Please set i18nAiExtractor.openAIApiKey in settings.");
@@ -302,91 +335,142 @@ async function findUnlocalizedText(text) {
   Ignore:
   - Code comments
   - Variable names
-  - Text already wrapped in i18next.t('') or with data-i18n=""
+  - Text already wrapped in ${i18nFunctionName}('') or with data-i18n=""
   - HTML tags and attributes (unless they contain user-facing text)
   
   For each extracted text:
   1. Provide the exact text found
-  2. Suggest a concise i18n key (lowercase, underscores for spaces)
-  3. Include the line number where it appears
   
   Format the output as a JSON array of objects:
   [
     {
-      "text": "extracted text",
-      "suggestedKey": "suggested_key",
-      "line": lineNumber
+      "text": "extracted text"
     },
     ...
   ]`;
 
   const prompt = unlocalizedTextPrompt ? unlocalizedTextPrompt.replace("{{text}}", text) : defaultPrompt;
 
-  try {
-    const response = await axios.post(
-      `${openAIBasePath}/chat/completions`,
-      {
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful assistant that identifies unlocalized text in source code.",
-          },
-          { role: "user", content: prompt },
-        ],
-        max_tokens: 1000,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${openAIApiKey}`,
-          "Content-Type": "application/json",
+  return await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    title: "Scanning for unlocalized text",
+    cancellable: false
+  }, async (progress) => {
+    progress.report({ increment: 0 });
+
+    try {
+      progress.report({ increment: 50, message: "Analyzing with OpenAI..." });
+      const response = await axios.post(
+        `${openAIBasePath}/chat/completions`,
+        {
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful assistant that identifies unlocalized text in source code.",
+            },
+            { role: "user", content: prompt },
+          ],
+          max_tokens: 1000,
         },
-      }
-    );
+        {
+          headers: {
+            Authorization: `Bearer ${openAIApiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-    const aiOutput = response.data.choices[0].message.content.trim();
-    const unlocalizedTexts = parseAIOutput(aiOutput, text);
-    return unlocalizedTexts;
-  } catch (error) {
-    console.error("Error detecting unlocalized text with OpenAI:", error);
-    vscode.window.showErrorMessage(`Error detecting unlocalized text: ${error.message}`);
-    return [];
-  }
-}
+      progress.report({ increment: 40, message: "Processing results..." });
+      const aiOutput = response.data.choices[0].message.content.trim();
+      
+      // Show AI response in output panel
+      outputChannel.appendLine("AI Response:");
+      outputChannel.appendLine(aiOutput);
+      outputChannel.show();
 
-function parseAIOutput(aiOutput, fileContent) {
-  const lines = aiOutput.split('\n');
-  const unlocalizedTexts = [];
-  const fileLines = fileContent.split('\n');
+      const unlocalizedTexts = parseAIOutput(aiOutput, text, config);
 
-  lines.forEach(line => {
-    const match = line.match(/"([^"]+)":\s*"([^"]+)"/);
-    if (match) {
-      const [, key, text] = match;
-      const lineNumber = findTextLineNumber(text, fileLines);
-      if (lineNumber !== -1) {
-        unlocalizedTexts.push({
-          line: lineNumber,
-          text: text,
-          suggestedKey: key
-        });
-      }
+      progress.report({ increment: 10, message: "Done" });
+      return unlocalizedTexts;
+    } catch (error) {
+      console.error("Error detecting unlocalized text with OpenAI:", error);
+      vscode.window.showErrorMessage(`Error detecting unlocalized text: ${error.message}`);
+      return [];
     }
   });
+}
+
+function parseAIOutput(aiOutput, fileContent, config) {
+  const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
+  const fileLines = fileContent.split('\n');
+  let unlocalizedTexts = [];
+
+  console.log("AI Response:", aiOutput);
+
+  try {
+    // Remove potential code block markers and trim
+    const cleanedOutput = aiOutput.replace(/```json\n?|```\n?/g, '').trim();
+    
+    // Parse the JSON array from the AI output
+    const parsedOutput = JSON.parse(cleanedOutput);
+
+    console.log("Parsed AI Output:", JSON.stringify(parsedOutput, null, 2));
+
+    // Process each item in the parsed array
+    unlocalizedTexts = parsedOutput.map(item => {
+      const result = {
+        line: findTextLineNumber(item.text, fileLines, i18nFunctionName),
+        text: item.text
+      };
+      console.log("Processed item:", JSON.stringify(result, null, 2));
+      return result;
+    }).filter(item => item.line !== -2);
+
+    console.log("Final unlocalized texts:", JSON.stringify(unlocalizedTexts, null, 2));
+  } catch (error) {
+    console.error("Error parsing AI output:", error);
+    vscode.window.showErrorMessage(`Error parsing AI output: ${error.message}`);
+  }
 
   return unlocalizedTexts;
 }
 
-function findTextLineNumber(text, fileLines) {
+function findTextLineNumber(text, fileLines, i18nFunctionName) {
+  // First, try to find the text enclosed in quotes
+  let matchLine = -1;
   for (let i = 0; i < fileLines.length; i++) {
-    if (fileLines[i].includes(text)) {
-      return i;
+    if (fileLines[i].includes(`"${text}"`) || fileLines[i].includes(`'${text}'`)) {
+      matchLine = i;
+      break;
     }
   }
-  return -1;
+
+  if (matchLine === -1) {
+    // If not found, search for the raw text
+    for (let i = 0; i < fileLines.length; i++) {
+      if (fileLines[i].includes(text)) {
+        matchLine = i;
+        break;
+      }
+    }
+  }
+
+  // scan the matched line, if it's inside i18nFunctionName(''), return -2
+  if (matchLine > -1 && fileLines[matchLine].includes(`${i18nFunctionName}('${text}')`)) {
+    return -2;
+  }
+
+  return matchLine;
 }
 
-function getWebviewContent(unlocalizedTexts) {
+function getWebviewContent(unlocalizedTexts, config) {
+  const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
+  
+  // Separate known and possible occurrences
+  const knownOccurrences = unlocalizedTexts.filter(item => item.line !== -1);
+  const possibleOccurrences = unlocalizedTexts.filter(item => item.line === -1);
+  
   return `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -398,15 +482,26 @@ function getWebviewContent(unlocalizedTexts) {
   <body class="bg-gray-100 p-6">
     <h2 class="text-2xl font-bold mb-6 text-gray-800">Unlocalized Text</h2>
     <div class="space-y-4">
-      ${unlocalizedTexts.map((item, index) => `
+      ${knownOccurrences.map((item, index) => `
         <div class="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition duration-300 ease-in-out cursor-pointer" onclick="jumpToLine(${item.line})">
           <div class="flex justify-between items-center mb-2">
             <strong class="text-lg text-cyan-600">${index + 1}. Line ${item.line + 1}</strong>
-            <span class="text-sm text-gray-500">Suggested key: ${item.suggestedKey}</span>
           </div>
           <p class="text-gray-700">${item.text}</p>
         </div>
       `).join('')}
+      
+      ${possibleOccurrences.length > 0 ? `
+        <h3 class="text-xl font-semibold mt-8 mb-4 text-gray-700">Possible Occurrences</h3>
+        ${possibleOccurrences.map((item, index) => `
+          <div class="bg-gray-200 rounded-lg shadow-md p-4 hover:shadow-lg transition duration-300 ease-in-out">
+            <div class="flex justify-between items-center mb-2">
+              <strong class="text-lg text-gray-600">Possible ${index + 1}</strong>
+            </div>
+            <p class="text-gray-700">${item.text}</p>
+          </div>
+        `).join('')}
+      ` : ''}
     </div>
     <script>
       const vscode = acquireVsCodeApi();
@@ -414,6 +509,15 @@ function getWebviewContent(unlocalizedTexts) {
         vscode.postMessage({
           command: 'jumpToLine',
           line: line
+        });
+      }
+      function copyI18nFunction(text) {
+        const i18nFunction = \`${i18nFunctionName}('\${text}')\`;
+        navigator.clipboard.writeText(i18nFunction).then(() => {
+          vscode.postMessage({
+            command: 'showInfo',
+            text: 'Copied to clipboard'
+          });
         });
       }
     </script>
