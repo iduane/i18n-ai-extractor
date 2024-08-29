@@ -29,6 +29,10 @@
       {
         "command": "extension.openLocaleFile",
         "title": "Open Locale File at I18n Key"
+      },
+      {
+        "command": "extension.scanForUnlocalizedText",
+        "title": "Scan for Unlocalized Text"
       }
     ],
     "keybindings": [
@@ -67,6 +71,11 @@
           "type": "string",
           "default": "",
           "description": "Custom template for OpenAI chat prompt. Use {{text}} as a placeholder for the selected text."
+        },
+        "i18nAiExtractor.unlocalizedTextPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "Custom prompt for unlocalized text scanning. Use {{text}} as a placeholder for the scanned text."
         }
       }
     }

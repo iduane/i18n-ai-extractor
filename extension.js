@@ -132,6 +132,53 @@ function activate(context) {
       });
     })
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("extension.scanForUnlocalizedText", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("No active text editor found.");
+        return;
+      }
+
+      const document = editor.document;
+      const text = document.getText();
+      const unlocalizedTexts = await findUnlocalizedText(text);
+
+      if (unlocalizedTexts.length === 0) {
+        vscode.window.showInformationMessage("No unlocalized text found in the current file.");
+        return;
+      }
+
+      // Create and show a new webview
+      const panel = vscode.window.createWebviewPanel(
+        'unlocalizedText',
+        'Unlocalized Text',
+        vscode.ViewColumn.Beside,
+        {
+          enableScripts: true
+        }
+      );
+
+      // Generate HTML content for the webview
+      panel.webview.html = getWebviewContent(unlocalizedTexts);
+
+      // Handle messages from the webview
+      panel.webview.onDidReceiveMessage(
+        message => {
+          switch (message.command) {
+            case 'jumpToLine':
+              const position = new vscode.Position(message.line, 0);
+              editor.selection = new vscode.Selection(position, position);
+              editor.revealRange(new vscode.Range(position, position));
+              return;
+          }
+        },
+        undefined,
+        context.subscriptions
+      );
+    })
+  );
 }
 
 async function updateLocaleFile(filePath, key, translation) {
@@ -228,6 +275,150 @@ async function findKeyLineNumber(filePath, key) {
     console.error("Error reading locale file:", error);
     return -1;
   }
+}
+
+async function findUnlocalizedText(text) {
+  const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+  const openAIApiKey = config.get("openAIApiKey", "");
+  const openAIBasePath = config.get("openAIBasePath", "https://api.openai.com/v1");
+  const unlocalizedTextPrompt = config.get("unlocalizedTextPrompt", "");
+
+  if (!openAIApiKey) {
+    vscode.window.showErrorMessage("OpenAI API key not configured. Please set i18nAiExtractor.openAIApiKey in settings.");
+    return [];
+  }
+
+  const defaultPrompt = `${text}
+
+  Analyze the provided code and extract all user-facing English text that requires translation for internationalization. Include:
+  
+  1. UI text: Labels, buttons, headings, placeholders
+  2. Messages: Errors, warnings, confirmations, notifications
+  3. Dynamic content: Sentences with variables (e.g., "Hello, {username}")
+  4. Dates and times: Any format (e.g., "Last updated: {date}")
+  5. Numbers and currencies: Including formatted values
+  6. Units of measurement
+  
+  Ignore:
+  - Code comments
+  - Variable names
+  - Text already wrapped in i18next.t('') or with data-i18n=""
+  - HTML tags and attributes (unless they contain user-facing text)
+  
+  For each extracted text:
+  1. Provide the exact text found
+  2. Suggest a concise i18n key (lowercase, underscores for spaces)
+  3. Include the line number where it appears
+  
+  Format the output as a JSON array of objects:
+  [
+    {
+      "text": "extracted text",
+      "suggestedKey": "suggested_key",
+      "line": lineNumber
+    },
+    ...
+  ]`;
+
+  const prompt = unlocalizedTextPrompt ? unlocalizedTextPrompt.replace("{{text}}", text) : defaultPrompt;
+
+  try {
+    const response = await axios.post(
+      `${openAIBasePath}/chat/completions`,
+      {
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful assistant that identifies unlocalized text in source code.",
+          },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 1000,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${openAIApiKey}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const aiOutput = response.data.choices[0].message.content.trim();
+    const unlocalizedTexts = parseAIOutput(aiOutput, text);
+    return unlocalizedTexts;
+  } catch (error) {
+    console.error("Error detecting unlocalized text with OpenAI:", error);
+    vscode.window.showErrorMessage(`Error detecting unlocalized text: ${error.message}`);
+    return [];
+  }
+}
+
+function parseAIOutput(aiOutput, fileContent) {
+  const lines = aiOutput.split('\n');
+  const unlocalizedTexts = [];
+  const fileLines = fileContent.split('\n');
+
+  lines.forEach(line => {
+    const match = line.match(/"([^"]+)":\s*"([^"]+)"/);
+    if (match) {
+      const [, key, text] = match;
+      const lineNumber = findTextLineNumber(text, fileLines);
+      if (lineNumber !== -1) {
+        unlocalizedTexts.push({
+          line: lineNumber,
+          text: text,
+          suggestedKey: key
+        });
+      }
+    }
+  });
+
+  return unlocalizedTexts;
+}
+
+function findTextLineNumber(text, fileLines) {
+  for (let i = 0; i < fileLines.length; i++) {
+    if (fileLines[i].includes(text)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function getWebviewContent(unlocalizedTexts) {
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unlocalized Text</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 p-6">
+    <h2 class="text-2xl font-bold mb-6 text-gray-800">Unlocalized Text</h2>
+    <div class="space-y-4">
+      ${unlocalizedTexts.map((item, index) => `
+        <div class="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition duration-300 ease-in-out cursor-pointer" onclick="jumpToLine(${item.line})">
+          <div class="flex justify-between items-center mb-2">
+            <strong class="text-lg text-cyan-600">${index + 1}. Line ${item.line + 1}</strong>
+            <span class="text-sm text-gray-500">Suggested key: ${item.suggestedKey}</span>
+          </div>
+          <p class="text-gray-700">${item.text}</p>
+        </div>
+      `).join('')}
+    </div>
+    <script>
+      const vscode = acquireVsCodeApi();
+      function jumpToLine(line) {
+        vscode.postMessage({
+          command: 'jumpToLine',
+          line: line
+        });
+      }
+    </script>
+  </body>
+  </html>`;
 }
 
 function deactivate() {}
