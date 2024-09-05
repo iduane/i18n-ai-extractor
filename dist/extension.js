@@ -10828,7 +10828,7 @@ var require_axios = __commonJS({
     }
     var isString2 = typeOfTest2("string");
     var isFunction2 = typeOfTest2("function");
-    var isNumber2 = typeOfTest2("number");
+    var isNumber3 = typeOfTest2("number");
     var isObject2 = (thing) => thing !== null && typeof thing === "object";
     var isBoolean2 = (thing) => thing === true || thing === false;
     var isPlainObject2 = (val) => {
@@ -10970,7 +10970,7 @@ var require_axios = __commonJS({
       if (!thing) return null;
       if (isArray2(thing)) return thing;
       let i = thing.length;
-      if (!isNumber2(i)) return null;
+      if (!isNumber3(i)) return null;
       const arr = new Array(i);
       while (i-- > 0) {
         arr[i] = thing[i];
@@ -11124,7 +11124,7 @@ var require_axios = __commonJS({
       isFormData: isFormData2,
       isArrayBufferView: isArrayBufferView2,
       isString: isString2,
-      isNumber: isNumber2,
+      isNumber: isNumber3,
       isBoolean: isBoolean2,
       isObject: isObject2,
       isPlainObject: isPlainObject2,
@@ -14038,7 +14038,7 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
       `
   ).join("")}
 
-        ${aiDetectedOccurrences.length > 0 ? `<div class="mt-32 h-2 w-full bg-gray-300"></div>` : ""}
+        ${aiDetectedOccurrences.length > 0 && possibleDetectedOccurrences.length > 0 ? `<div class="mt-32 h-2 w-full bg-gray-300"></div>` : ""}
           ${possibleDetectedOccurrences.length > 0 ? `<h2 class="text-xl font-bold mt-4 mb-2">Possible Detected Occurrences</h2>` : ""}
 ${possibleDetectedOccurrences.map(
     (file, fileIndex) => `
@@ -14171,7 +14171,7 @@ function scanForUnlocalizedText(code, fileType) {
       const currentLine = line;
       const previousLine = lineIndex > 0 ? lines[lineIndex - 1] : null;
       const nextLine = lineIndex < lines.length - 1 ? lines[lineIndex + 1] : null;
-      if (shouldBeLocalized(text, currentLine, fileType) && !isInsideComplexProp(code, text, originalIndex) && !isNameOrIdField(code, text, originalIndex) && !isRequireOrImport(currentLine, previousLine) && !isEqualExpression(code, text, originalIndex) && !isInsideI18next(currentLine, previousLine) && !isFunctionParam(code, text, originalIndex) && !isCamelCase(text)) {
+      if (shouldBeLocalized(text, currentLine, fileType) && !isInsideComplexProp(code, text, originalIndex) && !isNameOrIdField(code, text, originalIndex) && !isRequireOrImport(currentLine, previousLine) && !isEqualExpression(code, text, originalIndex) && !isInsideI18next(currentLine, previousLine) && !isFunctionParam(code, text, originalIndex) && !isObjectProperty(code, text, originalIndex) && !((fileType === "handlebars" || fileType === "hbs") && isHandlebarsI18n(code, text, originalIndex)) && !((fileType === "html" || fileType === "htm") && isHTMLI18n(code, text, originalIndex)) && !isCamelCase(text) && !isSnakeCase(text) && !isNumber(text) && !isPath(text)) {
         unlocalizedTexts.push({
           text,
           index: originalIndex,
@@ -14274,7 +14274,7 @@ function isNameOrIdField(code, text, index) {
   if (objectStart !== -1) {
     const objectContent = beforeText.slice(objectStart) + text + afterText.split("}")[0];
     if (/\blabel\s*:/.test(objectContent)) {
-      return /\b(name|id|field)\s*:\s*(['"])/.test(beforeText);
+      return /\b(name|id|field|value)\s*:\s*(['"])/.test(beforeText);
     }
   }
   return false;
@@ -14297,6 +14297,47 @@ function isFunctionParam(code, text, index) {
   }
   return false;
 }
+function isObjectProperty(code, text, index) {
+  const beforeText = code.slice(Math.max(0, index - 50), index + 1);
+  const afterText = code.slice(
+    index + text.length + 1,
+    index + text.length + 5
+  );
+  const bracketNotationRegex = /\b(\w+)\[\s*['"][\w.]+['"]\s*\]/;
+  return bracketNotationRegex.test(beforeText + text + afterText);
+}
+function isHandlebarsI18n(code, text, index) {
+  const beforeText = code.slice(0, index);
+  const afterText = code.slice(index + text.length);
+  const handlebarsRegex = /\{\{\s*t\s+['"]|['"].*\}\}/;
+  return handlebarsRegex.test(beforeText) || handlebarsRegex.test(afterText);
+}
+function isHTMLI18n(code, text, index) {
+  const beforeText = code.slice(Math.max(0, index - 200), index);
+  const afterText = code.slice(index + text.length, index + text.length + 200);
+  const htmlRegex = /<[^>]+>/;
+  const i18nAttrRegex = /data-i18n\s*=\s*["']([^"']+)["']/;
+  if (htmlRegex.test(beforeText) || htmlRegex.test(afterText)) {
+    const i18nMatch = i18nAttrRegex.exec(beforeText) || i18nAttrRegex.exec(afterText);
+    if (i18nMatch) {
+      const i18nValue = i18nMatch[1];
+      const i18nParts = i18nValue.split(";");
+      for (const part of i18nParts) {
+        if (part.includes("[")) {
+          const keyPart = part.split("]")[1];
+          if (keyPart && keyPart.trim() === text.trim()) {
+            return true;
+          }
+        } else {
+          if (part.trim() === text.trim()) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
 function isCamelCase(text) {
   const config = vscode3.workspace.getConfiguration("i18nAiExtractor");
   const ignoreCamelCase = config.get("ignoreCamelCase", false);
@@ -14304,6 +14345,22 @@ function isCamelCase(text) {
     return false;
   }
   return /^[a-z][a-zA-Z0-9]*$/.test(text);
+}
+function isSnakeCase(text) {
+  const config = vscode3.workspace.getConfiguration("i18nAiExtractor");
+  const ignoreSnakeCase = config.get("ignoreSnakeCase", false);
+  if (!ignoreSnakeCase) {
+    return false;
+  }
+  return /^[a-z]+_[a-z]+$/.test(text);
+}
+function isNumber(text) {
+  const unitRegex = /px|em|%|pt|in|cm|mm|ex|pc|vh|vw|vmin|vmax|deg|rad|grad|turn|ms|[a-zA-Z]/;
+  const trimmedText = text.replace(unitRegex, "");
+  return /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(trimmedText);
+}
+function isPath(text) {
+  return /^\/[^/]+\/.*$/.test(text);
 }
 var testCode = `{
   name: 'addFeedGroup',
@@ -14353,7 +14410,7 @@ function isArrayBufferView(val) {
 }
 var isString = typeOfTest("string");
 var isFunction = typeOfTest("function");
-var isNumber = typeOfTest("number");
+var isNumber2 = typeOfTest("number");
 var isObject = (thing) => thing !== null && typeof thing === "object";
 var isBoolean = (thing) => thing === true || thing === false;
 var isPlainObject = (val) => {
@@ -14495,7 +14552,7 @@ var toArray = (thing) => {
   if (!thing) return null;
   if (isArray(thing)) return thing;
   let i = thing.length;
-  if (!isNumber(i)) return null;
+  if (!isNumber2(i)) return null;
   const arr = new Array(i);
   while (i-- > 0) {
     arr[i] = thing[i];
@@ -14649,7 +14706,7 @@ var utils_default = {
   isFormData,
   isArrayBufferView,
   isString,
-  isNumber,
+  isNumber: isNumber2,
   isBoolean,
   isObject,
   isPlainObject,

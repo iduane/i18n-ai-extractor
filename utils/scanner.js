@@ -58,7 +58,19 @@ export function scanForUnlocalizedText(code, fileType) {
         !isEqualExpression(code, text, originalIndex) &&
         !isInsideI18next(currentLine, previousLine) &&
         !isFunctionParam(code, text, originalIndex) &&
-        !isCamelCase(text)
+        !isObjectProperty(code, text, originalIndex) &&
+        !(
+          (fileType === "handlebars" || fileType === "hbs") &&
+          isHandlebarsI18n(code, text, originalIndex)
+        ) &&
+        !(
+          (fileType === "html" || fileType === "htm") &&
+          isHTMLI18n(code, text, originalIndex)
+        ) &&
+        !isCamelCase(text) &&
+        !isSnakeCase(text) &&
+        !isNumber(text) &&
+        !isPath(text)
       ) {
         unlocalizedTexts.push({
           text,
@@ -235,7 +247,7 @@ function isNameOrIdField(code, text, index) {
       beforeText.slice(objectStart) + text + afterText.split("}")[0];
     if (/\blabel\s*:/.test(objectContent)) {
       // If label is present, check if the current text is for name, id, or field
-      return /\b(name|id|field)\s*:\s*(['"])/.test(beforeText);
+      return /\b(name|id|field|value)\s*:\s*(['"])/.test(beforeText);
     }
   }
 
@@ -273,6 +285,65 @@ function isFunctionParam(code, text, index) {
   return false;
 }
 
+function isObjectProperty(code, text, index) {
+  const beforeText = code.slice(Math.max(0, index - 50), index + 1);
+  const afterText = code.slice(
+    index + text.length + 1,
+    index + text.length + 5
+  );
+
+  // Check for bracket notation access
+  const bracketNotationRegex = /\b(\w+)\[\s*['"][\w.]+['"]\s*\]/;
+
+  return bracketNotationRegex.test(beforeText + text + afterText);
+}
+
+function isHandlebarsI18n(code, text, index) {
+  const beforeText = code.slice(0, index);
+  const afterText = code.slice(index + text.length);
+
+  // Check if the text is inside a handlebars template
+  const handlebarsRegex = /\{\{\s*t\s+['"]|['"].*\}\}/;
+  return handlebarsRegex.test(beforeText) || handlebarsRegex.test(afterText);
+}
+
+function isHTMLI18n(code, text, index) {
+  const beforeText = code.slice(Math.max(0, index - 200), index);
+  const afterText = code.slice(index + text.length, index + text.length + 200);
+
+  // Check if the text is inside an HTML tag
+  const htmlRegex = /<[^>]+>/;
+
+  // Check for data-i18n attribute with various patterns
+  const i18nAttrRegex = /data-i18n\s*=\s*["']([^"']+)["']/;
+
+  if (htmlRegex.test(beforeText) || htmlRegex.test(afterText)) {
+    const i18nMatch =
+      i18nAttrRegex.exec(beforeText) || i18nAttrRegex.exec(afterText);
+    if (i18nMatch) {
+      const i18nValue = i18nMatch[1];
+      // Check for all three cases
+      const i18nParts = i18nValue.split(";");
+      for (const part of i18nParts) {
+        if (part.includes("[")) {
+          // Case 1 and 3: [title]component.networkGraph.appMap.resetZoom
+          const keyPart = part.split("]")[1];
+          if (keyPart && keyPart.trim() === text.trim()) {
+            return true;
+          }
+        } else {
+          // Case 2: component.networkGraph.appMap.resetZoom
+          if (part.trim() === text.trim()) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 function isCamelCase(text) {
   const config = vscode.workspace.getConfiguration("i18nAiExtractor");
   const ignoreCamelCase = config.get("ignoreCamelCase", false);
@@ -284,6 +355,29 @@ function isCamelCase(text) {
   return /^[a-z][a-zA-Z0-9]*$/.test(text);
 }
 
+function isSnakeCase(text) {
+  const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+  const ignoreSnakeCase = config.get("ignoreSnakeCase", false);
+
+  if (!ignoreSnakeCase) {
+    return false;
+  }
+
+  return /^[a-z]+_[a-z]+$/.test(text);
+}
+
+function isNumber(text) {
+  // trim unit like px, em, %, etc.
+  const unitRegex =
+    /px|em|%|pt|in|cm|mm|ex|pc|vh|vw|vmin|vmax|deg|rad|grad|turn|ms|[a-zA-Z]/;
+  const trimmedText = text.replace(unitRegex, "");
+  // Matches integers, decimals, and scientific notation
+  return /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(trimmedText);
+}
+
+function isPath(text) {
+  return /^\/[^/]+\/.*$/.test(text);
+}
 // Example usage:
 const testCode = `{
   name: 'addFeedGroup',

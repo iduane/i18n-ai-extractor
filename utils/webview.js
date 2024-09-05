@@ -182,7 +182,8 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
         .join("")}
 
         ${
-          aiDetectedOccurrences.length > 0
+          aiDetectedOccurrences.length > 0 &&
+          possibleDetectedOccurrences.length > 0
             ? `<div class="mt-32 h-2 w-full bg-gray-300"></div>`
             : ""
         }
