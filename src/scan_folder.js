@@ -53,21 +53,19 @@ async function scanDirectory(dirPath, config) {
 }
 
 async function scanSingleFile(filePath, config) {
+  const skipFolders = config.get("scanSkipFolders", []);
+  const skipFoldersRegex = new RegExp(skipFolders.join("|"));
+  if (skipFoldersRegex.test(filePath)) {
+    return null;
+  }
   // only scan specific file extensions; and make file extension case configurable
-  const fileExt = path.extname(filePath).slice(1);
-  const allowedExtensions = config.get("scanFileExtensions", [
-    "js",
-    "jsx",
-    "html",
-    "vue",
-    "mjs",
-    "cj",
-    "ts",
-    "tsx",
-    "json",
-    "handlebars",
-  ]);
+  const fileExt = path.basename(filePath).split(".").slice(1).join(".");
+  const allowedExtensions = config.get("scanFileExtensions", []);
   if (!allowedExtensions.includes(fileExt)) {
+    return null;
+  }
+  const skipExtensions = config.get("scanSkipFileExtensions", []);
+  if (skipExtensions.includes(fileExt)) {
     return null;
   }
   const occurrences = scanUnlocalizedText(filePath, config);
