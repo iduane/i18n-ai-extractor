@@ -45,11 +45,13 @@ Key settings include:
 
 ## Usage Tips
 
-1. **Extracting Locale**: 
+1. **Extracting Locale**:
+
    - For best results, select complete sentences or phrases.
    - You can modify the suggested key before confirming.
 
 2. **Scanning for Unlocalized Text**:
+
    - Review the results carefully, as not all string literals may need translation.
    - Click on the line numbers in the results to jump to the corresponding location in your code.
 
@@ -70,13 +72,6 @@ We welcome your feedback and contributions! Please visit our [GitHub repository]
 - Report issues
 - Suggest new features
 - Contribute to the codebase
-
-
-## TODO
-
-- [ ] CMD+Click to navigate to the i18n key
-- [ ] Support various locale file structures and key paths
-- [ ] Code hint for directly inputting i18n keys
 
 ## License
 
