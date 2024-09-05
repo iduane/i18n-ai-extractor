@@ -70,7 +70,8 @@ export function scanForUnlocalizedText(code, fileType) {
         !isCamelCase(text) &&
         !isSnakeCase(text) &&
         !isNumber(text) &&
-        !isPath(text)
+        !isPath(text) &&
+        !isColor(text)
       ) {
         unlocalizedTexts.push({
           text,
@@ -90,6 +91,57 @@ export function scanForUnlocalizedText(code, fileType) {
 
 // Update these helper functions
 function shouldBeLocalized(text, currentLine, fileType) {
+  if (
+    [
+      "\\n",
+      "<tr>",
+      "<td>",
+      "<th>",
+      "<span>",
+      "<div>",
+      "<p>",
+      "<a>",
+      "<button>",
+      "<input>",
+      "<textarea>",
+      "<label>",
+      "<select>",
+      "<option>",
+      "<img>",
+      "<table>",
+      "<b>",
+      "<h1>",
+      "<h2>",
+      "<h3>",
+      "<h4>",
+      "<h5>",
+      "<h6>",
+      "</h1>",
+      "</h2>",
+      "</h3>",
+      "</h4>",
+      "</h5>",
+      "</h6>",
+      "</b>",
+      "</span>",
+      "</div>",
+      "</p>",
+      "</a>",
+      "</button>",
+      "</input>",
+      "</textarea>",
+      "</label>",
+      "</select>",
+      "</option>",
+      "</img>",
+      "</tr>",
+      "</td>",
+      "</th>",
+      "</table>",
+    ].includes(text)
+  ) {
+    return false;
+  }
   const config = vscode.workspace.getConfiguration("i18nAiExtractor");
   const ignoredProps = config.get("ignoredProps", []);
   const ignoredValuePrefixes = config.get("ignoredValuePrefixes", []);
@@ -231,13 +283,13 @@ function isInsideComplexProp(code, text, index) {
 }
 
 function isNameOrIdField(code, text, index) {
-  const beforeText = code.slice(0, index);
+  const beforeText = code.slice(Math.max(0, index - 10), index + 1);
   const afterText = code.slice(index + text.length);
 
   // Check if the text is inside a name, id, or field property
-  const keyFieldRegex = /\b(name|id|field)\s*:\s*$/;
-  if (keyFieldRegex.test(beforeText)) {
-    return true;
+  const keyFieldRegex = /\b(name|id|field|value)\s*:\s*$/;
+  if (!keyFieldRegex.test(beforeText)) {
+    return false;
   }
 
   // Check if there's a label property in the same object
@@ -246,8 +298,6 @@ function isNameOrIdField(code, text, index) {
     const objectContent =
       beforeText.slice(objectStart) + text + afterText.split("}")[0];
     if (/\blabel\s*:/.test(objectContent)) {
-      // If label is present, check if the current text is for name, id, or field
-      return /\b(name|id|field|value)\s*:\s*(['"])/.test(beforeText);
     }
   }
 
@@ -258,28 +308,16 @@ function isFunctionParam(code, text, index) {
   const config = vscode.workspace.getConfiguration("i18nAiExtractor");
   const ignoredFunctions = config.get("ignoredFunctions", ["sampleFunction"]);
 
-  const beforeText = code.slice(0, index);
-  const afterText = code.slice(index + text.length);
+  const beforeText = code.slice(Math.max(0, index - 50), index);
 
+  if (beforeText.indexOf("registerControl") > -1) debugger;
   // Check if the text is inside a function parameter
   const functionParamRegex = new RegExp(
-    `\\b(${ignoredFunctions.join("|")})\\s*\\(`
+    `\\b(${ignoredFunctions.join("|")})\\s*\\($`
   );
 
-  // Look for the last occurrence of a function call before the text
-  const lastFunctionCall = beforeText
-    .split("\n")
-    .reverse()
-    .find((line) => functionParamRegex.test(line));
-
-  if (lastFunctionCall) {
-    // Check if there's an unmatched opening parenthesis after the function call
-    const openParenCount = (lastFunctionCall.match(/\(/g) || []).length;
-    const closeParenCount = (lastFunctionCall.match(/\)/g) || []).length;
-
-    if (openParenCount > closeParenCount) {
-      return true;
-    }
+  if (functionParamRegex.test(beforeText)) {
+    return true;
   }
 
   return false;
@@ -293,7 +331,7 @@ function isObjectProperty(code, text, index) {
   );
 
   // Check for bracket notation access
-  const bracketNotationRegex = /\b(\w+)\[\s*['"][\w.]+['"]\s*\]/;
+  const bracketNotationRegex = /\b(\w+)\[\s*['"][\w.\-]+['"]\s*\]/;
 
   return bracketNotationRegex.test(beforeText + text + afterText);
 }
@@ -377,6 +415,10 @@ function isNumber(text) {
 
 function isPath(text) {
   return /^\/[^/]+\/.*$/.test(text);
+}
+
+function isColor(text) {
+  return /^#[0-9A-Fa-f]{6}$/.test(text);
 }
 // Example usage:
 const testCode = `{
