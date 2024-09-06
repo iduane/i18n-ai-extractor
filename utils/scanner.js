@@ -15,7 +15,9 @@ import * as vscode from "vscode";
 
 export function scanForUnlocalizedText(code, fileType) {
   const unlocalizedTexts = [];
-  const stringRegex = /'([^']+)'|"([^"]+)"/g;
+  const stringRegex = /'([^']+)'|"([^"]+)"|`([^`]+)`/g;
+  const tagChildTextRegex = />([\w\s]+)<\//g;
+
   const lines = code.split("\n");
 
   let inMultiLineComments = false;
@@ -40,8 +42,9 @@ export function scanForUnlocalizedText(code, fileType) {
     }
     let match;
     stringRegex.lastIndex = 0; // Reset lastIndex to 0 for each line
+
     while ((match = stringRegex.exec(line)) !== null) {
-      const text = match[1] || match[2];
+      const text = match[1] || match[2] || match[3];
       const originalIndex = cumulativeLength + match.index;
 
       const lineNumber = lineIndex + 1; // Simplified line number calculation
@@ -83,6 +86,27 @@ export function scanForUnlocalizedText(code, fileType) {
         });
       }
     }
+
+    let match2;
+    tagChildTextRegex.lastIndex = 0;
+    while ((match2 = tagChildTextRegex.exec(line)) !== null) {
+      const text = match2[1];
+      const originalIndex = cumulativeLength + match2.index;
+      const lineNumber = lineIndex + 1; // Simplified line number calculation
+      const currentLine = line;
+      const previousLine = lineIndex > 0 ? lines[lineIndex - 1] : null;
+      const nextLine =
+        lineIndex < lines.length - 1 ? lines[lineIndex + 1] : null;
+      unlocalizedTexts.push({
+        text,
+        index: originalIndex,
+        line: lineNumber,
+        currentLineText: currentLine.trim(),
+        previousLineText: previousLine ? previousLine.trim() : null,
+        nextLineText: nextLine ? nextLine.trim() : null,
+      });
+    }
+
     cumulativeLength += line.length + 1;
   }
 
@@ -148,15 +172,21 @@ function shouldBeLocalized(text, currentLine, fileType) {
 
   // Ignore text that appears after specified JSX attributes
   const propRegex = new RegExp(
-    `\\b(\.?${ignoredProps.join("|")})\\s*(=|:)\\s*["']`
+    `\\b(\.?${ignoredProps.join("|")})\\s*(=|:)\\s*(["'])`,
+    "g"
   );
-  if (propRegex.test(currentLine)) {
-    return false;
+  let propMath;
+  while ((propMath = propRegex.exec(currentLine)) !== null) {
+    const quote = propMath[3];
+    const propValue = currentLine.slice(propMath.index + propMath[0].length);
+    if (propValue.startsWith(text + quote)) {
+      return false;
+    }
   }
 
   // Ignore text that appears after custom ignored value prefixes
-  const valuePrefixRegex = new RegExp(`\\b(${ignoredValuePrefixes.join("|")})`);
-  if (valuePrefixRegex.test(currentLine)) {
+  const valuePrefixRegex = new RegExp(`^(${ignoredValuePrefixes.join("|")})`);
+  if (valuePrefixRegex.test(text)) {
     return false;
   }
 
@@ -283,11 +313,11 @@ function isInsideComplexProp(code, text, index) {
 }
 
 function isNameOrIdField(code, text, index) {
-  const beforeText = code.slice(Math.max(0, index - 10), index + 1);
+  const beforeText = code.slice(Math.max(0, index - 150), index + 1);
   const afterText = code.slice(index + text.length);
 
   // Check if the text is inside a name, id, or field property
-  const keyFieldRegex = /\b(name|id|field|value)\s*:\s*$/;
+  const keyFieldRegex = /\b(name|id|field|value)\s*:\s*["']$/;
   if (!keyFieldRegex.test(beforeText)) {
     return false;
   }
@@ -297,7 +327,8 @@ function isNameOrIdField(code, text, index) {
   if (objectStart !== -1) {
     const objectContent =
       beforeText.slice(objectStart) + text + afterText.split("}")[0];
-    if (/\blabel\s*:/.test(objectContent)) {
+    if (/\blabel\s*:/m.test(objectContent)) {
+      return true;
     }
   }
 
@@ -310,7 +341,6 @@ function isFunctionParam(code, text, index) {
 
   const beforeText = code.slice(Math.max(0, index - 50), index);
 
-  if (beforeText.indexOf("registerControl") > -1) debugger;
   // Check if the text is inside a function parameter
   const functionParamRegex = new RegExp(
     `\\b(${ignoredFunctions.join("|")})\\s*\\($`
@@ -346,34 +376,31 @@ function isHandlebarsI18n(code, text, index) {
 }
 
 function isHTMLI18n(code, text, index) {
-  const beforeText = code.slice(Math.max(0, index - 200), index);
-  const afterText = code.slice(index + text.length, index + text.length + 200);
-
-  // Check if the text is inside an HTML tag
-  const htmlRegex = /<[^>]+>/;
+  const aroundText = code.slice(
+    Math.max(0, index - 50),
+    index + text.length + 2
+  );
 
   // Check for data-i18n attribute with various patterns
-  const i18nAttrRegex = /data-i18n\s*=\s*["']([^"']+)["']/;
+  const aroundTextRegex = /data-i18n\s*=\s*["']([^"']+)["']/gm;
 
-  if (htmlRegex.test(beforeText) || htmlRegex.test(afterText)) {
-    const i18nMatch =
-      i18nAttrRegex.exec(beforeText) || i18nAttrRegex.exec(afterText);
-    if (i18nMatch) {
-      const i18nValue = i18nMatch[1];
-      // Check for all three cases
-      const i18nParts = i18nValue.split(";");
-      for (const part of i18nParts) {
-        if (part.includes("[")) {
-          // Case 1 and 3: [title]component.networkGraph.appMap.resetZoom
-          const keyPart = part.split("]")[1];
-          if (keyPart && keyPart.trim() === text.trim()) {
-            return true;
-          }
-        } else {
-          // Case 2: component.networkGraph.appMap.resetZoom
-          if (part.trim() === text.trim()) {
-            return true;
-          }
+  let i18nMatch = aroundTextRegex.exec(aroundText);
+
+  if (i18nMatch) {
+    const i18nValue = i18nMatch[1];
+    // Check for all three cases
+    const i18nParts = i18nValue.split(";");
+    for (const part of i18nParts) {
+      if (part.includes("[")) {
+        // Case 1 and 3: [title]component.networkGraph.appMap.resetZoom
+        const keyPart = part.split("]")[1];
+        if (keyPart && keyPart.trim() === text.trim().replace(/\[\w+\]/, "")) {
+          return true;
+        }
+      } else {
+        // Case 2: component.networkGraph.appMap.resetZoom
+        if (part.trim() === text.trim()) {
+          return true;
         }
       }
     }
