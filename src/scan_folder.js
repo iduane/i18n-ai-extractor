@@ -4,7 +4,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { createWebviewPanel } from "../utils/webview";
 import { COMMANDS, onCommand } from "./commands";
-import { scanForUnlocalizedText } from "../utils/scanner";
+import { scanForUnlocalizedText } from "../utils/unlocalized_scanner";
 import { findUnlocalizedText } from "../utils/ai";
 
 export const scanFolderForI18n = {

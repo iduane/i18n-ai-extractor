@@ -36,11 +36,15 @@
       },
       {
         "command": "extension.scanForUnlocalizedText",
-        "title": "Scan for Unlocalized Text"
+        "title": "Scan unlocalized text list for current file"
       },
       {
         "command": "extension.scanFolderForI18n",
-        "title": "Scan folder/file for I18n"
+        "title": "Scan unlocalized text list"
+      },
+      {
+        "command": "extension.scanAllUnused",
+        "title": "Scan all unused i18n keys"
       }
     ],
     "keybindings": [
@@ -144,6 +148,16 @@
             "customProp2"
           ],
           "description": "List of properties to ignore when scanning for unlocalized text"
+        },
+        "i18nAiExtractor.scanFolderForUnused": {
+          "type": "string",
+          "default": "src",
+          "description": "Folder to scan for unused text"
+        },
+        "i18nAiExtractor.localeResourceFolder": {
+          "type": "string",
+          "default": "locale",
+          "description": "Folder to scan for unused text"
         },
         "i18nAiExtractor.scanFileExtensions": {
           "type": "array",
@@ -267,6 +281,11 @@
           "type": "boolean",
           "default": true,
           "description": "Ignore dot expression text when scanning for unlocalized text"
+        },
+        "i18nAiExtractor.ignoreHTMLText": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ignore HTML text when scanning for unlocalized text"
         }
       }
     }

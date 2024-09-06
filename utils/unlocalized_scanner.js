@@ -423,7 +423,8 @@ function isIgnoredText(text) {
     isDotExpression(text) ||
     isNumber(text) ||
     isPath(text) ||
-    isColor(text)
+    isColor(text) ||
+    isHTMLCode(text)
   );
 }
 
@@ -475,6 +476,25 @@ function isPath(text) {
 
 function isColor(text) {
   return /^#[0-9A-Fa-f]{6}$/.test(text);
+}
+
+function isHTMLCode(text) {
+  const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+  const ignoreHTMLText = config.get("ignoreHTMLText", false);
+
+  if (!ignoreHTMLText) {
+    return false;
+  }
+
+  const headMatch = /^<(\w+)/.exec(text);
+  const tailMatch = /<\/(\w+)>/.exec(text);
+
+  if (
+    (headMatch && tailMatch && headMatch[1] === tailMatch[1]) ||
+    text.endsWith("/>")
+  ) {
+    return true;
+  }
 }
 
 function processMultipleLines(code, unlocalizedTexts, fileType) {

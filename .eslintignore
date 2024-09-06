@@ -31,3 +31,5 @@ yarn.lock
 # Any other build or temporary directories
 dist/
 temp/
+
+coverage/

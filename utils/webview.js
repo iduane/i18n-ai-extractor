@@ -128,7 +128,7 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/@shadcn/ui@0.0.1/dist/index.min.css" rel="stylesheet">
   </head>
-  <body class="bg-gray-100 p-6">
+  <body class="bg-gray-100 text-gray-900 p-6">
     <div class="flex items-center mb-6">
       ${iconContent}
       <h2 class="ml-2 text-2xl font-bold text-gray-800">${title}</h2>
