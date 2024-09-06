@@ -1,8 +1,6 @@
-import { readFileSync } from "fs";
 import { scanFolderForI18n } from "./src/scan_folder";
 import { createWebviewPanel } from "./utils/webview";
 import { COMMANDS, onCommand } from "./src/commands";
-import { createOutputChannel } from "./src/output";
 import { findUnlocalizedText } from "./utils/ai";
 
 const vscode = require("vscode");
@@ -10,11 +8,7 @@ const fs = require("fs").promises;
 const path = require("path");
 const axios = require("axios");
 
-let outputChannel;
-
 function activate(context) {
-  outputChannel = createOutputChannel();
-
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "extension.extractLocale",

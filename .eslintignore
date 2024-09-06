@@ -1,0 +1,33 @@
+# Output directory
+out/
+
+# Node modules
+node_modules/
+
+# VS Code extension development files
+.vscode-test/
+
+# Test files
+test/
+
+# Build artifacts
+*.vsix
+
+# Configuration files
+.eslintrc.json
+.prettierrc
+tsconfig.json
+
+# Markdown files
+*.md
+
+# Git files
+.gitignore
+
+# Package manager files
+package-lock.json
+yarn.lock
+
+# Any other build or temporary directories
+dist/
+temp/

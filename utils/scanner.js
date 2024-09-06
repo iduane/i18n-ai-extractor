@@ -16,7 +16,6 @@ import * as vscode from "vscode";
 export function scanForUnlocalizedText(code, fileType) {
   const unlocalizedTexts = [];
   const stringRegex = /'([^']+)'|"([^"]+)"|`([^`]+)`/g;
-  const tagChildTextRegex = />([\w\s]+)<\//g;
 
   const lines = code.split("\n");
 
@@ -24,7 +23,9 @@ export function scanForUnlocalizedText(code, fileType) {
   let cumulativeLength = 0;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
-    if (inMultiLineComments && line.trim().startsWith("*/")) {
+    let lineMatchStartIndex = 0;
+    if (inMultiLineComments && line.trim().indexOf("*/") !== -1) {
+      lineMatchStartIndex = line.indexOf("*/") + 2;
       inMultiLineComments = false;
     }
     if (inMultiLineComments) {
@@ -35,13 +36,13 @@ export function scanForUnlocalizedText(code, fileType) {
       cumulativeLength += line.length + 1;
       continue;
     }
-    if (line.startsWith("/*")) {
+    if (line.trim().startsWith("/*")) {
       inMultiLineComments = true;
       cumulativeLength += line.length + 1;
       continue;
     }
     let match;
-    stringRegex.lastIndex = 0; // Reset lastIndex to 0 for each line
+    stringRegex.lastIndex = lineMatchStartIndex; // Reset lastIndex to 0 for each line
 
     while ((match = stringRegex.exec(line)) !== null) {
       const text = match[1] || match[2] || match[3];
@@ -70,11 +71,7 @@ export function scanForUnlocalizedText(code, fileType) {
           (fileType === "html" || fileType === "htm") &&
           isHTMLI18n(code, text, originalIndex)
         ) &&
-        !isCamelCase(text) &&
-        !isSnakeCase(text) &&
-        !isNumber(text) &&
-        !isPath(text) &&
-        !isColor(text)
+        !isIgnoredText(text)
       ) {
         unlocalizedTexts.push({
           text,
@@ -88,7 +85,9 @@ export function scanForUnlocalizedText(code, fileType) {
     }
 
     let match2;
-    tagChildTextRegex.lastIndex = 0;
+    const tagChildTextRegex = />([^<>]+)</g;
+
+    tagChildTextRegex.lastIndex = lineMatchStartIndex;
     while ((match2 = tagChildTextRegex.exec(line)) !== null) {
       const text = match2[1];
       const originalIndex = cumulativeLength + match2.index;
@@ -97,6 +96,9 @@ export function scanForUnlocalizedText(code, fileType) {
       const previousLine = lineIndex > 0 ? lines[lineIndex - 1] : null;
       const nextLine =
         lineIndex < lines.length - 1 ? lines[lineIndex + 1] : null;
+      if (text.startsWith("{") && text.endsWith("}")) {
+        continue;
+      }
       unlocalizedTexts.push({
         text,
         index: originalIndex,
@@ -110,11 +112,12 @@ export function scanForUnlocalizedText(code, fileType) {
     cumulativeLength += line.length + 1;
   }
 
+  processMultipleLines(code, unlocalizedTexts, fileType);
   return unlocalizedTexts;
 }
 
 // Update these helper functions
-function shouldBeLocalized(text, currentLine, fileType) {
+function shouldBeLocalized(text, currentLine) {
   if (
     [
       "\\n",
@@ -171,23 +174,27 @@ function shouldBeLocalized(text, currentLine, fileType) {
   const ignoredValuePrefixes = config.get("ignoredValuePrefixes", []);
 
   // Ignore text that appears after specified JSX attributes
-  const propRegex = new RegExp(
-    `\\b(\.?${ignoredProps.join("|")})\\s*(=|:)\\s*(["'])`,
-    "g"
-  );
-  let propMath;
-  while ((propMath = propRegex.exec(currentLine)) !== null) {
-    const quote = propMath[3];
-    const propValue = currentLine.slice(propMath.index + propMath[0].length);
-    if (propValue.startsWith(text + quote)) {
-      return false;
+  if (ignoredProps.length > 0) {
+    const propRegex = new RegExp(
+      `\\b(\.?${ignoredProps.join("|")})\\s*(=|:)\\s*(["'])`,
+      "g"
+    );
+    let propMath;
+    while ((propMath = propRegex.exec(currentLine)) !== null) {
+      const quote = propMath[3];
+      const propValue = currentLine.slice(propMath.index + propMath[0].length);
+      if (propValue.startsWith(text + quote)) {
+        return false;
+      }
     }
   }
 
   // Ignore text that appears after custom ignored value prefixes
-  const valuePrefixRegex = new RegExp(`^(${ignoredValuePrefixes.join("|")})`);
-  if (valuePrefixRegex.test(text)) {
-    return false;
+  if (ignoredValuePrefixes.length > 0) {
+    const valuePrefixRegex = new RegExp(`^(${ignoredValuePrefixes.join("|")})`);
+    if (valuePrefixRegex.test(text)) {
+      return false;
+    }
   }
 
   // Ignore JSX attributes like className, width, etc.
@@ -409,6 +416,17 @@ function isHTMLI18n(code, text, index) {
   return false;
 }
 
+function isIgnoredText(text) {
+  return (
+    isCamelCase(text) ||
+    isSnakeCase(text) ||
+    isDotExpression(text) ||
+    isNumber(text) ||
+    isPath(text) ||
+    isColor(text)
+  );
+}
+
 function isCamelCase(text) {
   const config = vscode.workspace.getConfiguration("i18nAiExtractor");
   const ignoreCamelCase = config.get("ignoreCamelCase", false);
@@ -431,6 +449,17 @@ function isSnakeCase(text) {
   return /^[a-z]+_[a-z]+$/.test(text);
 }
 
+function isDotExpression(text) {
+  const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+  const ignoreDotExpression = config.get("ignoreDotExpression", false);
+
+  if (!ignoreDotExpression) {
+    return false;
+  }
+
+  return text.startsWith(".") && text.length > 1;
+}
+
 function isNumber(text) {
   // trim unit like px, em, %, etc.
   const unitRegex =
@@ -447,13 +476,81 @@ function isPath(text) {
 function isColor(text) {
   return /^#[0-9A-Fa-f]{6}$/.test(text);
 }
-// Example usage:
-const testCode = `{
-  name: 'addFeedGroup',
-  label: 'Add Feed Group',
-  description: "This is a longer description that should be localized",
-  count: 42
-}`;
 
-const result = scanForUnlocalizedText(testCode, "jsx");
-console.log(result);
+function processMultipleLines(code, unlocalizedTexts, fileType) {
+  if (["jsx", "js", "html"].includes(fileType)) {
+    // Add a new regex to match JSX tags and their attributes
+    const jsxTagRegex = /<([a-zA-Z]+)\s*([^>]*)>\s*([^<]+)\s*<\/([a-zA-Z]+)>/g;
+    let match;
+    let matchIndex = 0;
+    while ((match = jsxTagRegex.exec(code)) !== null) {
+      matchIndex = match.index;
+      const [allMatch, openingTag, , childText, closingTag] = match;
+      let text = childText.trim();
+      const beforeCloseText = allMatch.substring(
+        allMatch.indexOf(">") + 1,
+        allMatch.length - closingTag.length - 3
+      );
+      if (beforeCloseText.indexOf(">") > -1) {
+        text = text.substring(beforeCloseText.lastIndexOf(">") + 1);
+        matchIndex =
+          matchIndex +
+            allMatch.indexOf(">") +
+            beforeCloseText.lastIndexOf(">") +
+            2 +
+            ((/^(\s|\r|\n)+/.exec(text) || [""])[0] || {}).length || 0;
+        text = text.trim();
+      }
+      if (
+        openingTag === closingTag &&
+        text.indexOf("<") < 0 &&
+        text.indexOf("</") < 0 &&
+        text.indexOf("/>") < 0 &&
+        text.indexOf("<") < 0 &&
+        text.indexOf("}") < 0 &&
+        text.indexOf("{") < 0 &&
+        text.indexOf("(") < 0 &&
+        text.indexOf(")") < 0 &&
+        text.indexOf("=") < 0 &&
+        shouldBeLocalized(text, fileType)
+      ) {
+        const lineNumber = code.slice(0, matchIndex).split("\n").length;
+        const currentLineText = code.split("\n")[lineNumber - 1];
+        if (
+          !isIgnoredText(text) &&
+          !unlocalizedTexts.find((t) => t.text === text)
+        ) {
+          unlocalizedTexts.push({
+            text,
+            index: matchIndex,
+            line: lineNumber,
+            currentLineText,
+          });
+        }
+      }
+    }
+
+    const multiLineStringRegex = /`([^`]*)`/g;
+    let multiLineStringMatch;
+    while ((multiLineStringMatch = multiLineStringRegex.exec(code)) !== null) {
+      const text = multiLineStringMatch[1];
+      if (shouldBeLocalized(text, fileType)) {
+        const lineNumber = code
+          .slice(0, multiLineStringMatch.index)
+          .split("\n").length;
+        const currentLineText = code.split("\n")[lineNumber - 1];
+        if (
+          !isIgnoredText(text) &&
+          !unlocalizedTexts.find((t) => t.text === text)
+        ) {
+          unlocalizedTexts.push({
+            text,
+            index: multiLineStringMatch.index,
+            line: lineNumber,
+            currentLineText,
+          });
+        }
+      }
+    }
+  }
+}

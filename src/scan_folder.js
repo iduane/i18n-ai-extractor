@@ -79,7 +79,7 @@ async function scanSingleFile(filePath, config) {
   return null;
 }
 
-function scanUnlocalizedText(filePath, config) {
+function scanUnlocalizedText(filePath) {
   const fileContent = readFileSync(filePath, "utf8");
   const extName = path.extname(filePath).slice(1);
   const matches = scanForUnlocalizedText(fileContent, extName);
