@@ -1,7 +1,7 @@
-import { scanFolderForI18n } from "./src/scan_folder";
+import { scanUnlocalized } from "./src/scan_unlocalized";
 import { createWebviewPanel } from "./utils/webview";
 import { COMMANDS, onCommand } from "./src/commands";
-import { findUnlocalizedText } from "./utils/ai";
+import { findUnlocalizedText } from "./src/ai";
 import { scanAllUnused } from "./src/scan_unused";
 
 const vscode = require("vscode");
@@ -381,7 +381,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "extension.scanFolderForI18n",
-      scanFolderForI18n.bind(context)
+      scanUnlocalized.bind(context)
     )
   );
 

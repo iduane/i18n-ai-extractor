@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import axios from "axios";
-import { createOutputChannel } from "../src/output";
+import { createOutputChannel } from "./output";
 
 export async function findUnlocalizedText(text, config) {
   const outputChannel = createOutputChannel();

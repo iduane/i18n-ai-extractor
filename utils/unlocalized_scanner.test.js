@@ -1,5 +1,3 @@
-import "../test/setup.js";
-
 import { scanForUnlocalizedText } from "./unlocalized_scanner";
 
 describe("scanForUnlocalizedText", () => {

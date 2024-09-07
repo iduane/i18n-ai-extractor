@@ -8825,7 +8825,7 @@ var require_mime_types = __commonJS({
   "node_modules/mime-types/index.js"(exports2) {
     "use strict";
     var db = require_mime_db();
-    var extname2 = require("path").extname;
+    var extname = require("path").extname;
     var EXTRACT_TYPE_REGEXP = /^\s*([^;\s]*)(?:;|\s|$)/;
     var TEXT_TYPE_REGEXP = /^text\//i;
     exports2.charset = charset;
@@ -8879,7 +8879,7 @@ var require_mime_types = __commonJS({
       if (!path5 || typeof path5 !== "string") {
         return false;
       }
-      var extension2 = extname2("x." + path5).toLowerCase().substr(1);
+      var extension2 = extname("x." + path5).toLowerCase().substr(1);
       if (!extension2) {
         return false;
       }
@@ -9140,7 +9140,7 @@ var require_form_data = __commonJS({
     var http2 = require("http");
     var https2 = require("https");
     var parseUrl = require("url").parse;
-    var fs5 = require("fs");
+    var fs4 = require("fs");
     var Stream = require("stream").Stream;
     var mime = require_mime_types();
     var asynckit = require_asynckit();
@@ -9205,7 +9205,7 @@ var require_form_data = __commonJS({
         if (value.end != void 0 && value.end != Infinity && value.start != void 0) {
           callback(null, value.end + 1 - (value.start ? value.start : 0));
         } else {
-          fs5.stat(value.path, function(err, stat) {
+          fs4.stat(value.path, function(err, stat) {
             var fileSize;
             if (err) {
               callback(err);
@@ -13915,11 +13915,8 @@ var require_axios = __commonJS({
   }
 });
 
-// src/scan_folder.js
-var import_fs = require("fs");
-var import_fs2 = require("fs");
-var path2 = __toESM(require("path"));
-var vscode6 = __toESM(require("vscode"));
+// src/scan_unlocalized.js
+var vscode7 = __toESM(require("vscode"));
 
 // utils/webview.js
 var fs = require("fs");
@@ -14516,7 +14513,7 @@ function processMultipleLines(code, unlocalizedTexts, fileType) {
   }
 }
 
-// utils/ai.js
+// src/ai.js
 var vscode5 = __toESM(require("vscode"));
 
 // node_modules/axios/lib/helpers/bind.js
@@ -17802,7 +17799,7 @@ function createOutputChannel() {
   return outputChannel;
 }
 
-// utils/ai.js
+// src/ai.js
 async function findUnlocalizedText(text, config) {
   const outputChannel2 = createOutputChannel();
   const openAIApiKey = config.get("openAIApiKey", "");
@@ -18004,54 +18001,34 @@ function trimCode(code, maxSize) {
   return trimmedLines.join("\n");
 }
 
-// src/scan_folder.js
-var scanFolderForI18n = {
-  bind: (context) => {
-    return async function(uri) {
-      try {
-        const stats = await import_fs2.promises.stat(uri.fsPath);
-        const config = vscode6.workspace.getConfiguration("i18nAiExtractor");
-        let results = [];
-        if (stats.isDirectory()) {
-          results = await scanDirectory(uri.fsPath, config);
-        } else {
-          const fileResult = await scanSingleFile(uri.fsPath, config);
-          if (fileResult) {
-            results.push(fileResult);
-          }
-        }
-        analysisRegexpMatches(results, context, config);
-      } catch (error) {
-        vscode6.window.showErrorMessage(
-          `Error scanning folder: ${error.message}`
-        );
-      }
-    };
-  }
-};
-async function scanDirectory(dirPath, config) {
+// utils/scanner.js
+var import_fs = require("fs");
+var import_fs2 = require("fs");
+var import_path = __toESM(require("path"));
+var import_vscode = __toESM(require("vscode"));
+async function scanDirectory(dirPath, config, executor, resultReducer2 = (a) => a) {
   const results = [];
   const entries = await import_fs2.promises.readdir(dirPath, { withFileTypes: true });
   for (const entry of entries) {
-    const fullPath = path2.join(dirPath, entry.name);
+    const fullPath = import_path.default.join(dirPath, entry.name);
     if (entry.isDirectory()) {
-      results.push(...await scanDirectory(fullPath, config));
+      results.push(
+        ...await scanDirectory(fullPath, config, executor, resultReducer2)
+      );
     } else if (entry.isFile()) {
-      const fileResult = await scanSingleFile(fullPath, config);
-      if (fileResult) {
-        results.push(fileResult);
-      }
+      const fileResult = await scanSingleFile(fullPath, config, executor);
+      results.push(fileResult);
     }
   }
-  return results;
+  return resultReducer2(results);
 }
-async function scanSingleFile(filePath, config) {
+async function scanSingleFile(filePath, config, executor) {
   const skipFolders = config.get("scanSkipFolders", []);
   const skipFoldersRegex = new RegExp(skipFolders.join("|"));
   if (skipFoldersRegex.test(filePath)) {
     return null;
   }
-  const fileExt = path2.basename(filePath).split(".").slice(1).join(".");
+  const fileExt = import_path.default.basename(filePath).split(".").slice(1).join(".");
   const allowedExtensions = config.get("scanFileExtensions", []);
   if (!allowedExtensions.includes(fileExt)) {
     return null;
@@ -18060,30 +18037,67 @@ async function scanSingleFile(filePath, config) {
   if (skipExtensions.includes(fileExt)) {
     return null;
   }
-  const occurrences = scanUnlocalizedText(filePath, config);
-  if (occurrences && occurrences.length > 0) {
-    return {
-      filePath,
-      occurrences
+  const code = (0, import_fs.readFileSync)(filePath, "utf8");
+  const fileRelativePath = import_path.default.relative(
+    import_vscode.default.workspace.workspaceFolders[0].uri.fsPath,
+    filePath
+  );
+  const result = executor({
+    code,
+    fileType: fileExt,
+    fileRelativePath,
+    filePath
+  });
+  return result;
+}
+
+// src/scan_unlocalized.js
+var scanUnlocalized = {
+  bind: (context) => {
+    return async function(uri) {
+      try {
+        const stats = await vscode7.workspace.fs.stat(uri);
+        const config = vscode7.workspace.getConfiguration("i18nAiExtractor");
+        let results = [];
+        if (stats.type === vscode7.FileType.Directory) {
+          results = await scanDirectory(
+            uri.fsPath,
+            config,
+            scanExecutor,
+            resultReducer
+          );
+        } else {
+          const fileResult = await scanSingleFile(
+            uri.fsPath,
+            config,
+            scanExecutor
+          );
+          results = resultReducer([fileResult]);
+        }
+        analysisRegexpMatches(results, context, config);
+      } catch (error) {
+        vscode7.window.showErrorMessage(
+          `Error scanning folder: ${error.message}`
+        );
+      }
     };
   }
-  return null;
-}
-function scanUnlocalizedText(filePath) {
-  const fileContent = (0, import_fs.readFileSync)(filePath, "utf8");
-  const extName = path2.extname(filePath).slice(1);
-  const matches = scanForUnlocalizedText(fileContent, extName);
-  const occurrences = [];
-  for (let match of matches) {
-    occurrences.push({
+};
+function scanExecutor({ code, fileType, fileRelativePath, filePath }) {
+  const matches = scanForUnlocalizedText(code, fileType);
+  return {
+    filePath,
+    occurrences: matches.map((match) => ({
       line: match.line,
       text: match.text,
       currentLineText: match.currentLineText,
       filePath,
       command: COMMANDS.JUMP_TO_FILE_LINE
-    });
-  }
-  return occurrences;
+    }))
+  };
+}
+function resultReducer(results) {
+  return results.filter((r) => r && r.occurrences.length > 0);
 }
 async function analysisRegexpMatches(results, context, config) {
   const openAIApiKey = config.get("openAIApiKey", "");
@@ -18094,13 +18108,13 @@ async function analysisRegexpMatches(results, context, config) {
     const allOccurrences = results.map((result) => result.occurrences).flat().map((occ) => occ.currentLineText);
     const totalSize = allOccurrences.join("\n").length;
     if (totalSize > MAX_TOTAL_SIZE) {
-      const proceed = await vscode6.window.showWarningMessage(
+      const proceed = await vscode7.window.showWarningMessage(
         `The total text size (${totalSize} characters) is larger than 200,000 characters. This may take a while to process. Do you want to continue?`,
         "Yes",
         "No"
       );
       if (proceed !== "Yes") {
-        vscode6.window.showInformationMessage("Analysis cancelled by user.");
+        vscode7.window.showInformationMessage("Analysis cancelled by user.");
         return;
       }
     }
@@ -18136,13 +18150,11 @@ async function analysisRegexpMatches(results, context, config) {
 }
 
 // src/scan_unused.js
-var import_fs3 = require("fs");
-var import_fs4 = require("fs");
 var path3 = __toESM(require("path"));
-var vscode7 = __toESM(require("vscode"));
+var vscode8 = __toESM(require("vscode"));
 
 // utils/unused_scanner.js
-function scanForInuseI18nKeys(code, fileType) {
+function scanForInuseI18nKeys({ code, fileType }) {
   const keys = /* @__PURE__ */ new Set();
   const patterns = [
     /(i18next\.t)\(\s*(['"`])([\w\-_\.]+)\s*(\2|\)|,|\$\{)/g,
@@ -18181,7 +18193,12 @@ function scanForInuseI18nKeys(code, fileType) {
   }
   return Array.from(keys);
 }
-function collectAllI18nKeys() {
+function collectAllI18nKeys({
+  code,
+  filePath,
+  fileType,
+  fileRelativePath
+}) {
 }
 function revisitI18nKeyPresenceInSource() {
 }
@@ -18191,20 +18208,20 @@ var scanAllUnused = {
   bind: (context) => {
     return async function(uri) {
       try {
-        const config = vscode7.workspace.getConfiguration("i18nAiExtractor");
-        const scanFolderForUnused = "/src/scripts/pages/Configuration/FeedAndChanel/FeedEditor/IncidentFeed";
+        const config = vscode8.workspace.getConfiguration("i18nAiExtractor");
+        const scanFolderForUnused = config.get("scanFolderForUnused", "src");
         const folderPath = path3.join(
-          vscode7.workspace.workspaceFolders[0].uri.fsPath,
+          vscode8.workspace.workspaceFolders[0].uri.fsPath,
           scanFolderForUnused
         );
-        let usedI18nKeys = await scanDirectory2(
+        let usedI18nKeys = await scanDirectory(
           folderPath,
           config,
           scanForInuseI18nKeys,
           (r) => Array.from(new Set(r))
         );
         const localeFolder = config.get("localeResourceFolder", "locale");
-        const allI18Keys = await scanDirectory2(
+        const allI18Keys = await scanDirectory(
           localeFolder,
           config,
           collectAllI18nKeys,
@@ -18215,7 +18232,7 @@ var scanAllUnused = {
         );
         const confirmedUnusedI18nKeys = [];
         for (let unusedKey of unusedI18nKeys) {
-          const boolArr = await scanDirectory2(
+          const boolArr = await scanDirectory(
             localeFolder,
             config,
             revisitI18nKeyPresenceInSource,
@@ -18225,71 +18242,34 @@ var scanAllUnused = {
             confirmedUnusedI18nKeys.push(unusedKey);
           }
         }
-        vscode7.window.showInformationMessage(
+        vscode8.window.showInformationMessage(
           `Found ${confirmedUnusedI18nKeys.length} unused i18n keys.`
         );
       } catch (error) {
-        vscode7.window.showErrorMessage(
+        vscode8.window.showErrorMessage(
           `Error scanning folder: ${error.message}`
         );
       }
     };
   }
 };
-async function scanDirectory2(dirPath, config, executor, resultReducer) {
-  const results = [];
-  const entries = await import_fs4.promises.readdir(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path3.join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      results.push(
-        ...await scanDirectory2(fullPath, config, executor, resultReducer)
-      );
-    } else if (entry.isFile()) {
-      const fileResult = await scanSingleFile2(fullPath, config, executor);
-      if (fileResult) {
-        results.push(...fileResult);
-      }
-    }
-  }
-  return resultReducer(results);
-}
-async function scanSingleFile2(filePath, config, executor) {
-  const skipFolders = config.get("scanSkipFolders", []);
-  const skipFoldersRegex = new RegExp(skipFolders.join("|"));
-  if (skipFoldersRegex.test(filePath)) {
-    return null;
-  }
-  const fileExt = path3.basename(filePath).split(".").slice(1).join(".");
-  const allowedExtensions = config.get("scanFileExtensions", []);
-  if (!allowedExtensions.includes(fileExt)) {
-    return null;
-  }
-  const skipExtensions = config.get("scanSkipFileExtensions", []);
-  if (skipExtensions.includes(fileExt)) {
-    return null;
-  }
-  const code = (0, import_fs3.readFileSync)(filePath, "utf8");
-  const result = executor(code, fileExt);
-  return result;
-}
 
 // extension.js
-var vscode8 = require("vscode");
-var fs4 = require("fs").promises;
+var vscode9 = require("vscode");
+var fs3 = require("fs").promises;
 var path4 = require("path");
 var axios2 = require_axios();
 function activate(context) {
   context.subscriptions.push(
-    vscode8.commands.registerCommand(
+    vscode9.commands.registerCommand(
       "extension.extractLocale",
       async (text, line, requireConfirmation = true) => {
-        let editor = vscode8.window.activeTextEditor;
+        let editor = vscode9.window.activeTextEditor;
         if (!editor) {
-          editor = vscode8.window.visibleTextEditors[vscode8.window.visibleTextEditors.length - 1];
+          editor = vscode9.window.visibleTextEditors[vscode9.window.visibleTextEditors.length - 1];
         }
         if (!editor && (line === -1 || typeof line === "undefined")) {
-          vscode8.window.showErrorMessage("No active text editor found.");
+          vscode9.window.showErrorMessage("No active text editor found.");
           return;
         }
         if (!text) {
@@ -18306,7 +18286,7 @@ function activate(context) {
             if (sentenceRange) {
               text = lineText.substring(sentenceRange.start, sentenceRange.end);
             } else {
-              vscode8.window.showErrorMessage(
+              vscode9.window.showErrorMessage(
                 "No sentence found at cursor position."
               );
               return;
@@ -18314,12 +18294,12 @@ function activate(context) {
           }
         }
         const unquotedText = text.replace(/^['"]|['"]$/g, "");
-        const config = vscode8.workspace.getConfiguration("i18nAiExtractor");
+        const config = vscode9.workspace.getConfiguration("i18nAiExtractor");
         const localePath = config.get("localePath", "");
         const openAIApiKey = config.get("openAIApiKey", "");
         const chatTemplate = config.get("chatTemplate", "");
         if (!localePath) {
-          vscode8.window.showErrorMessage(
+          vscode9.window.showErrorMessage(
             "Locale file path not configured. Please set i18nAiExtractor.localePath in settings."
           );
           return;
@@ -18334,7 +18314,7 @@ function activate(context) {
         }
         const key = suggestedKey.replace(/^['"]|['"]$/g, "");
         const fullPath = path4.join(
-          vscode8.workspace.workspaceFolders[0].uri.fsPath,
+          vscode9.workspace.workspaceFolders[0].uri.fsPath,
           localePath
         );
         const updatedKey = await updateLocaleFile(
@@ -18362,9 +18342,9 @@ function activate(context) {
               if (lineText[rangeStart - 1] === ">" || lineText[rangeEnd + 1] === "<") {
                 replacement = `{${replacement}}`;
               }
-              const range = new vscode8.Range(
-                new vscode8.Position(line, rangeStart),
-                new vscode8.Position(line, rangeEnd)
+              const range = new vscode9.Range(
+                new vscode9.Position(line, rangeStart),
+                new vscode9.Position(line, rangeEnd)
               );
               editor.edit((editBuilder) => {
                 editBuilder.replace(range, replacement);
@@ -18390,15 +18370,15 @@ function activate(context) {
                 if (lineText[rangeStart - 1] === ">" || lineText[rangeEnd + 1] === "<") {
                   replacement = `{${replacement}}`;
                 }
-                const range = new vscode8.Range(
-                  new vscode8.Position(position.line, rangeStart),
-                  new vscode8.Position(position.line, rangeEnd)
+                const range = new vscode9.Range(
+                  new vscode9.Position(position.line, rangeStart),
+                  new vscode9.Position(position.line, rangeEnd)
                 );
                 editor.edit((editBuilder) => {
                   editBuilder.replace(range, replacement);
                 });
               } else {
-                vscode8.window.showErrorMessage(
+                vscode9.window.showErrorMessage(
                   "No valid sentence found at cursor position."
                 );
               }
@@ -18417,9 +18397,9 @@ function activate(context) {
                 if (lineText[startChar - 1] === ">" || lineText[endChar + 1] === "<") {
                   replacement = `{${replacement}}`;
                 }
-                range = new vscode8.Selection(
-                  new vscode8.Position(range.start.line, startChar),
-                  new vscode8.Position(range.end.line, endChar)
+                range = new vscode9.Selection(
+                  new vscode9.Position(range.start.line, startChar),
+                  new vscode9.Position(range.end.line, endChar)
                 );
                 editBuilder.replace(range, replacement);
               });
@@ -18430,8 +18410,8 @@ function activate(context) {
     )
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("extension.extractLocaleNoConfirm", () => {
-      vscode8.commands.executeCommand(
+    vscode9.commands.registerCommand("extension.extractLocaleNoConfirm", () => {
+      vscode9.commands.executeCommand(
         "extension.extractLocale",
         void 0,
         void 0,
@@ -18440,10 +18420,10 @@ function activate(context) {
     })
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("extension.openLocaleFile", async () => {
-      const editor = vscode8.window.activeTextEditor;
+    vscode9.commands.registerCommand("extension.openLocaleFile", async () => {
+      const editor = vscode9.window.activeTextEditor;
       if (!editor) {
-        vscode8.window.showErrorMessage("No active text editor found.");
+        vscode9.window.showErrorMessage("No active text editor found.");
         return;
       }
       const selection = editor.selection;
@@ -18456,63 +18436,63 @@ function activate(context) {
       }
       const i18nKeyMatch = text.match(/i18next\.t\(['"](.+?)['"]\)/);
       if (!i18nKeyMatch) {
-        vscode8.window.showErrorMessage("No i18n expression found.");
+        vscode9.window.showErrorMessage("No i18n expression found.");
         return;
       }
       const i18nKey = i18nKeyMatch[1];
-      const config = vscode8.workspace.getConfiguration("i18nAiExtractor");
+      const config = vscode9.workspace.getConfiguration("i18nAiExtractor");
       const localePath = config.get("localePath", "");
       if (!localePath) {
-        vscode8.window.showErrorMessage("Locale file path not configured.");
+        vscode9.window.showErrorMessage("Locale file path not configured.");
         return;
       }
       const fullPath = path4.join(
-        vscode8.workspace.workspaceFolders[0].uri.fsPath,
+        vscode9.workspace.workspaceFolders[0].uri.fsPath,
         localePath
       );
       const fileName = path4.basename(fullPath, path4.extname(fullPath));
       const key = i18nKey.replace(fileName + ".", "");
       const lineNumber = await findKeyLineNumber(fullPath, key);
       if (lineNumber === -1) {
-        vscode8.window.showErrorMessage(
+        vscode9.window.showErrorMessage(
           `Key "${i18nKey}" not found in locale file.`
         );
         return;
       }
-      const uri = vscode8.Uri.file(fullPath);
-      const position = new vscode8.Position(lineNumber, 0);
-      await vscode8.window.showTextDocument(uri, {
-        selection: new vscode8.Range(position, position)
+      const uri = vscode9.Uri.file(fullPath);
+      const position = new vscode9.Position(lineNumber, 0);
+      await vscode9.window.showTextDocument(uri, {
+        selection: new vscode9.Range(position, position)
       });
     })
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand(
+    vscode9.commands.registerCommand(
       "extension.scanForUnlocalizedText",
       async () => {
-        const editor = vscode8.window.activeTextEditor;
+        const editor = vscode9.window.activeTextEditor;
         if (!editor) {
-          vscode8.window.showErrorMessage("No active text editor found.");
+          vscode9.window.showErrorMessage("No active text editor found.");
           return;
         }
         const document2 = editor.document;
-        const config = vscode8.workspace.getConfiguration("i18nAiExtractor");
+        const config = vscode9.workspace.getConfiguration("i18nAiExtractor");
         const maxRequestSize = config.get("maxRequestSize", 2e4);
         let text;
         let selection = editor.selection;
         if (selection.isEmpty) {
           text = document2.getText();
           if (text.length > maxRequestSize) {
-            const choice = await vscode8.window.showWarningMessage(
+            const choice = await vscode9.window.showWarningMessage(
               `The entire file (${text.length} characters) exceeds the maximum request size of ${maxRequestSize} characters. Would you like to select a portion of the code?`,
               "Select Portion",
               "Proceed Anyway",
               "Cancel"
             );
             if (choice === "Select Portion") {
-              const newSelection = await vscode8.window.showTextDocument(
+              const newSelection = await vscode9.window.showTextDocument(
                 document2,
-                { selection: new vscode8.Selection(0, 0, 0, 0) }
+                { selection: new vscode9.Selection(0, 0, 0, 0) }
               );
               if (newSelection) {
                 selection = editor.selection;
@@ -18529,7 +18509,7 @@ function activate(context) {
         }
         const unlocalizedTexts = await findUnlocalizedText(text, config);
         if (unlocalizedTexts.length === 0) {
-          vscode8.window.showInformationMessage(
+          vscode9.window.showInformationMessage(
             "No unlocalized text found in the current file."
           );
           return;
@@ -18569,13 +18549,13 @@ function activate(context) {
     )
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand(
+    vscode9.commands.registerCommand(
       "extension.scanFolderForI18n",
-      scanFolderForI18n.bind(context)
+      scanUnlocalized.bind(context)
     )
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand(
+    vscode9.commands.registerCommand(
       "extension.scanAllUnused",
       scanAllUnused.bind(context)
     )
@@ -18585,19 +18565,19 @@ async function updateLocaleFile(filePath, key, translation, requireConfirmation 
   try {
     let localeData = {};
     try {
-      const data = await fs4.readFile(filePath, { encoding: "utf8" });
+      const data = await fs3.readFile(filePath, { encoding: "utf8" });
       localeData = JSON.parse(String(data));
     } catch (error) {
       if (error.code !== "ENOENT") {
         throw error;
       }
-      vscode8.window.showInformationMessage(
+      vscode9.window.showInformationMessage(
         `Locale file not found. Creating a new one at ${filePath}`
       );
     }
     let confirmedKey = key;
     if (requireConfirmation) {
-      const modifiedKey = await vscode8.window.showInputBox({
+      const modifiedKey = await vscode9.window.showInputBox({
         prompt: "Confirm or modify the i18n key",
         value: key
       });
@@ -18609,27 +18589,27 @@ async function updateLocaleFile(filePath, key, translation, requireConfirmation 
     }
     if (localeData[confirmedKey]) {
       if (localeData[confirmedKey] !== translation) {
-        vscode8.window.showErrorMessage(
+        vscode9.window.showErrorMessage(
           `The entered i18n key were taken by another occurrence: ${localeData[confirmedKey]}`
         );
       }
       return;
     }
     localeData[confirmedKey] = translation;
-    await fs4.writeFile(filePath, JSON.stringify(localeData, null, 2), "utf8");
-    vscode8.window.showInformationMessage(
+    await fs3.writeFile(filePath, JSON.stringify(localeData, null, 2), "utf8");
+    vscode9.window.showInformationMessage(
       `Translation added for key: ${confirmedKey}`
     );
     return confirmedKey;
   } catch (error) {
-    vscode8.window.showErrorMessage(
+    vscode9.window.showErrorMessage(
       `Error updating locale file: ${error.message}`
     );
     return null;
   }
 }
 async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
-  const config = vscode8.workspace.getConfiguration("i18nAiExtractor");
+  const config = vscode9.workspace.getConfiguration("i18nAiExtractor");
   const openAIBasePath = config.get(
     "openAIBasePath",
     "https://api.openai.com/v1"
@@ -18637,9 +18617,9 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
   const defaultTemplate = 'Suggest a concise i18n key for this text: "{{text}}", just a key, no dotted combination paths, as simple as possible, prefer to use lower case for no abbr words, use underline for multiple word keys, no explanation, no nothing, just the key.';
   const template = chatTemplate || defaultTemplate;
   const prompt = template.replace("{{text}}", text);
-  return await vscode8.window.withProgress(
+  return await vscode9.window.withProgress(
     {
-      location: vscode8.ProgressLocation.Notification,
+      location: vscode9.ProgressLocation.Notification,
       title: "Suggesting i18n key",
       cancellable: false
     },
@@ -18672,7 +18652,7 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
         return suggestedKey;
       } catch (error) {
         console.error("Error suggesting key with OpenAI:", error);
-        vscode8.window.showErrorMessage(
+        vscode9.window.showErrorMessage(
           `Error suggesting i18n key: ${error.message}`
         );
         return "";
@@ -18682,7 +18662,7 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
 }
 async function findKeyLineNumber(filePath, key) {
   try {
-    const content = await fs4.readFile(filePath, "utf-8");
+    const content = await fs3.readFile(filePath, "utf-8");
     const lines = String(content).split("\n");
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes(`"${key}"`)) {

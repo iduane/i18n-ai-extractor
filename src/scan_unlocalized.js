@@ -1,27 +1,34 @@
-import { readFileSync } from "fs";
-import { promises as fs } from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import { createWebviewPanel } from "../utils/webview";
 import { COMMANDS, onCommand } from "./commands";
 import { scanForUnlocalizedText } from "../utils/unlocalized_scanner";
-import { findUnlocalizedText } from "../utils/ai";
+import { findUnlocalizedText } from "./ai";
+import { scanDirectory, scanSingleFile } from "../utils/scanner";
 
-export const scanFolderForI18n = {
+export const scanUnlocalized = {
   bind: (context) => {
     return async function (uri) {
       try {
-        const stats = await fs.stat(uri.fsPath);
+        const stats = await vscode.workspace.fs.stat(uri);
         const config = vscode.workspace.getConfiguration("i18nAiExtractor");
         let results = [];
-        if (stats.isDirectory()) {
-          results = await scanDirectory(uri.fsPath, config);
+
+        if (stats.type === vscode.FileType.Directory) {
+          results = await scanDirectory(
+            uri.fsPath,
+            config,
+            scanExecutor,
+            resultReducer
+          );
         } else {
-          const fileResult = await scanSingleFile(uri.fsPath, config);
-          if (fileResult) {
-            results.push(fileResult);
-          }
+          const fileResult = await scanSingleFile(
+            uri.fsPath,
+            config,
+            scanExecutor
+          );
+          results = resultReducer([fileResult]);
         }
+
         analysisRegexpMatches(results, context, config);
       } catch (error) {
         vscode.window.showErrorMessage(
@@ -32,69 +39,23 @@ export const scanFolderForI18n = {
   },
 };
 
-async function scanDirectory(dirPath, config) {
-  const results = [];
-  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+function scanExecutor({ code, fileType, fileRelativePath, filePath }) {
+  const matches = scanForUnlocalizedText(code, fileType);
 
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      results.push(...(await scanDirectory(fullPath, config)));
-    } else if (entry.isFile()) {
-      const fileResult = await scanSingleFile(fullPath, config);
-      if (fileResult) {
-        results.push(fileResult);
-      }
-    }
-  }
-
-  return results;
-}
-
-async function scanSingleFile(filePath, config) {
-  const skipFolders = config.get("scanSkipFolders", []);
-  const skipFoldersRegex = new RegExp(skipFolders.join("|"));
-  if (skipFoldersRegex.test(filePath)) {
-    return null;
-  }
-  // only scan specific file extensions; and make file extension case configurable
-  const fileExt = path.basename(filePath).split(".").slice(1).join(".");
-  const allowedExtensions = config.get("scanFileExtensions", []);
-  if (!allowedExtensions.includes(fileExt)) {
-    return null;
-  }
-  const skipExtensions = config.get("scanSkipFileExtensions", []);
-  if (skipExtensions.includes(fileExt)) {
-    return null;
-  }
-  const occurrences = scanUnlocalizedText(filePath, config);
-
-  if (occurrences && occurrences.length > 0) {
-    return {
-      filePath,
-      occurrences,
-    };
-  }
-  return null;
-}
-
-function scanUnlocalizedText(filePath) {
-  const fileContent = readFileSync(filePath, "utf8");
-  const extName = path.extname(filePath).slice(1);
-  const matches = scanForUnlocalizedText(fileContent, extName);
-
-  const occurrences = [];
-  for (let match of matches) {
-    occurrences.push({
+  return {
+    filePath,
+    occurrences: matches.map((match) => ({
       line: match.line,
       text: match.text,
       currentLineText: match.currentLineText,
       filePath,
       command: COMMANDS.JUMP_TO_FILE_LINE,
-    });
-  }
-  return occurrences;
+    })),
+  };
+}
+
+function resultReducer(results) {
+  return results.filter((r) => r && r.occurrences.length > 0);
 }
 
 async function analysisRegexpMatches(results, context, config) {

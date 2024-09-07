@@ -1,4 +1,4 @@
-export function scanForInuseI18nKeys(code, fileType) {
+export function scanForInuseI18nKeys({ code, fileType }) {
   const keys = new Set();
 
   // Regular expressions for different patterns
@@ -56,7 +56,12 @@ export function scanForInuseI18nKeys(code, fileType) {
   return Array.from(keys);
 }
 
-export function collectAllI18nKeys() {
+export function collectAllI18nKeys({
+  code,
+  filePath,
+  fileType,
+  fileRelativePath,
+}) {
   // plural keys
 }
 

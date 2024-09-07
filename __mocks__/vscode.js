@@ -2,7 +2,6 @@ module.exports = {
   workspace: {
     getConfiguration: () => ({
       get: (key, defaultValue) => {
-        debugger;
         const properties = {
           "i18nAiExtractor.localePath": {
             type: "string",
