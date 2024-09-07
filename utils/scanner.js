@@ -49,7 +49,7 @@ export async function scanSingleFile(filePath, config, executor) {
     vscode.workspace.workspaceFolders[0].uri.fsPath,
     filePath
   );
-  const result = executor({
+  const result = await executor({
     code,
     fileType: fileExt,
     fileRelativePath,

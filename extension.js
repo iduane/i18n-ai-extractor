@@ -3,6 +3,7 @@ import { createWebviewPanel } from "./utils/webview";
 import { COMMANDS, onCommand } from "./src/commands";
 import { findUnlocalizedText } from "./src/ai";
 import { scanAllUnused } from "./src/scan_unused";
+import { scanAllTypos } from "./src/scan_typo";
 
 const vscode = require("vscode");
 const fs = require("fs").promises;
@@ -389,6 +390,13 @@ function activate(context) {
     vscode.commands.registerCommand(
       "extension.scanAllUnused",
       scanAllUnused.bind(context)
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "extension.scanAllTypos",
+      scanAllTypos.bind(context)
     )
   );
 }

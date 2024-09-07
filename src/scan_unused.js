@@ -83,9 +83,13 @@ export const scanAllUnused = {
               "tsx",
             ]);
             const filePattern = `**/*.{${scanFileExtensions.join(",")}}`;
-            const totalFiles = await vscode.workspace.findFiles(
-              new vscode.RelativePattern(folderPaths[0], filePattern)
-            );
+            let totalFiles = [];
+            for (const folderPath of folderPaths) {
+              const t = await vscode.workspace.findFiles(
+                new vscode.RelativePattern(folderPath, filePattern)
+              );
+              totalFiles = totalFiles.concat(t);
+            }
 
             let filesScanned = 0;
             for (const file of totalFiles) {

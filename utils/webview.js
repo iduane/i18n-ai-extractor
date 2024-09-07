@@ -286,12 +286,16 @@ ${possibleDetectedOccurrences
         const allGroups = occurrencesContainer.querySelectorAll('.bg-white.shadow-md');
         
         allGroups.forEach(group => {
+          const groupTitle = group.querySelector('h3').textContent.toLowerCase();
           const allOccurrences = group.querySelectorAll('tr[data-file-index]');
           let visibleOccurrences = 0;
           
+          // Check if the group title matches the filter
+          const groupMatches = groupTitle.includes(filterText);
+          
           allOccurrences.forEach(tr => {
             const occurrenceText = tr.querySelector('td').textContent.toLowerCase();
-            if (occurrenceText.includes(filterText)) {
+            if (groupMatches || occurrenceText.includes(filterText)) {
               tr.style.display = '';
               visibleOccurrences++;
             } else {
@@ -299,8 +303,8 @@ ${possibleDetectedOccurrences
             }
           });
           
-          // Hide the entire group if all occurrences are hidden
-          group.style.display = visibleOccurrences > 0 ? '' : 'none';
+          // Show the group if the title matches or if there are visible occurrences
+          group.style.display = (groupMatches || visibleOccurrences > 0) ? '' : 'none';
         });
       }
 

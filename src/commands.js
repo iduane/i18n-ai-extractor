@@ -49,7 +49,8 @@ function jumpToLocaleKey(message) {
     const uniqueIdentifier = relativePath
       .replace(/\.\w+$/, "")
       .replace(/\//g, ".");
-    const key = message.text;
+    const parts = message.text.split(" - ");
+    const key = parts[parts.length - 1];
     const localeKey = key.substring(uniqueIdentifier.length + 1);
 
     // Read the locale file content
