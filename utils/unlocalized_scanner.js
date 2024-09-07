@@ -118,6 +118,9 @@ export function scanForUnlocalizedText(code, fileType) {
 
 // Update these helper functions
 function shouldBeLocalized(text, currentLine) {
+  if (text.trim() === "") {
+    return false;
+  }
   if (
     [
       "\\n",

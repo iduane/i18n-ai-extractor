@@ -73,6 +73,10 @@ We welcome your feedback and contributions! Please visit our [GitHub repository]
 - Suggest new features
 - Contribute to the codebase
 
+## TODO
+
+1. Support i18next's locale key composition options: basenameAsNamespace/relativePathAsNamespace
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

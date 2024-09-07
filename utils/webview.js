@@ -31,7 +31,9 @@ export function createWebviewPanel(
   description,
   fileListOccurrences,
   context,
-  onCommand
+  onCommand,
+  showLineNumbers = true, // New parameter with default value true
+  headerTitle = "Possible Detected Occurrences"
 ) {
   const formattedFileListOccurrences = fileListOccurrences.map((file) => {
     return {
@@ -65,7 +67,9 @@ export function createWebviewPanel(
     title,
     description,
     formattedFileListOccurrences,
-    context
+    context,
+    showLineNumbers, // Pass the new parameter
+    headerTitle
   );
 
   // Handle messages from the webview
@@ -96,7 +100,14 @@ function escapeHtml(unsafe) {
     .replace(/'/g, "&#039;");
 }
 
-function getWebviewContent(title, description, fileListOccurrences, context) {
+function getWebviewContent(
+  title,
+  description,
+  fileListOccurrences,
+  context,
+  showLineNumbers,
+  headerTitle
+) {
   const iconContent = fs.readFileSync(
     path.join(context.extensionPath, "OIG4.svg"),
     "utf8"
@@ -119,6 +130,16 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
     }
   }
 
+  const totalCount =
+    aiDetectedOccurrences.reduce(
+      (sum, file) => sum + file.occurrences.length,
+      0
+    ) +
+    possibleDetectedOccurrences.reduce(
+      (sum, file) => sum + file.occurrences.length,
+      0
+    );
+
   return `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -131,10 +152,11 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
   <body class="bg-gray-100 text-gray-900 p-6">
     <div class="flex items-center mb-6">
       ${iconContent}
-      <h2 class="ml-2 text-2xl font-bold text-gray-800">${title}</h2>
+      <h2 class="ml-2 text-2xl font-bold text-gray-800">${title} (${totalCount} occurrences)</h2>
     </div>
     <p class="text-gray-700 mb-4">${description}</p>
-    <div class="space-y-4">
+    <input type="text" id="filterInput" placeholder="Filter occurrences..." class="w-full p-2 mb-4 border rounded">
+    <div id="occurrencesContainer" class="space-y-4">
       ${aiDetectedOccurrences
         .map(
           (file, fileIndex) => `
@@ -156,7 +178,7 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
                       ? "opacity-50 cursor-not-allowed"
                       : "hover:bg-gray-100 cursor-pointer"
                   }"
-                    data-ai="true"
+                    data-ai="${occ.ai ? "true" : "false"}"
                       data-file-index="${fileIndex}"
                       data-occ-index="${occIndex}">
                     <td class="py-2 px-4 border-b flex items-center">
@@ -166,30 +188,33 @@ function getWebviewContent(title, description, fileListOccurrences, context) {
                           : ""
                       }
                       ${escapeHtml(occ.text)}
-                    </td>                    <td class="py-2 px-4 border-b text-right">${
-                      occ.line
-                    }</td>
+                    </td>
+                    ${
+                      showLineNumbers
+                        ? `<td class="py-2 px-4 border-b text-right">${occ.line}</td>`
+                        : ""
+                    }
                   </tr>
                 `
                   )
                   .join("")}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      `
+        `
         )
         .join("")}
 
-        ${
-          aiDetectedOccurrences.length > 0 &&
-          possibleDetectedOccurrences.length > 0
-            ? `<div class="mt-32 h-2 w-full bg-gray-300"></div>`
-            : ""
-        }
+          ${
+            aiDetectedOccurrences.length > 0 &&
+            possibleDetectedOccurrences.length > 0
+              ? `<div class="mt-32 h-2 w-full bg-gray-300"></div>`
+              : ""
+          }
           ${
             possibleDetectedOccurrences.length > 0
-              ? `<h2 class="text-xl font-bold mt-4 mb-2">Possible Detected Occurrences</h2>`
+              ? `<h2 class="text-xl font-bold mt-4 mb-2">${headerTitle}</h2>`
               : ""
           }
 ${possibleDetectedOccurrences
@@ -213,7 +238,7 @@ ${possibleDetectedOccurrences
                       ? "opacity-50 cursor-not-allowed"
                       : "hover:bg-gray-100 cursor-pointer"
                   }"
-                      data-ai="false"
+                      data-ai="${occ.ai ? "true" : "false"}"
                       data-file-index="${fileIndex}"
                       data-occ-index="${occIndex}">
                     <td class="py-2 px-4 border-b flex items-center">
@@ -223,9 +248,12 @@ ${possibleDetectedOccurrences
                           : ""
                       }
                       ${escapeHtml(occ.text)}
-                    </td>                    <td class="py-2 px-4 border-b text-right">${
-                      occ.line
-                    }</td>
+                    </td>
+                    ${
+                      showLineNumbers
+                        ? `<td class="py-2 px-4 border-b text-right">${occ.line}</td>`
+                        : ""
+                    }
                   </tr>
                 `
                   )
@@ -252,7 +280,33 @@ ${possibleDetectedOccurrences
         arrow.classList.toggle('rotate-180');
       }
 
+      function filterOccurrences() {
+        const filterText = document.getElementById('filterInput').value.toLowerCase();
+        const occurrencesContainer = document.getElementById('occurrencesContainer');
+        const allGroups = occurrencesContainer.querySelectorAll('.bg-white.shadow-md');
+        
+        allGroups.forEach(group => {
+          const allOccurrences = group.querySelectorAll('tr[data-file-index]');
+          let visibleOccurrences = 0;
+          
+          allOccurrences.forEach(tr => {
+            const occurrenceText = tr.querySelector('td').textContent.toLowerCase();
+            if (occurrenceText.includes(filterText)) {
+              tr.style.display = '';
+              visibleOccurrences++;
+            } else {
+              tr.style.display = 'none';
+            }
+          });
+          
+          // Hide the entire group if all occurrences are hidden
+          group.style.display = visibleOccurrences > 0 ? '' : 'none';
+        });
+      }
+
       document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('filterInput').addEventListener('input', filterOccurrences);
+
         document.querySelectorAll('tr[data-file-index]').forEach(tr => {
           tr.addEventListener('click', () => {
             const fileIndex = tr.getAttribute('data-file-index');

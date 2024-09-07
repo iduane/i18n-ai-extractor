@@ -1,9 +1,29 @@
+import path from "path";
+import * as vscode from "vscode";
+
 export function scanForInuseI18nKeys({ code, fileType }) {
   const keys = new Set();
 
   // Regular expressions for different patterns
+  const config = vscode.workspace.getConfiguration("i18nAiExtractor");
+  const i18nDetectPrefixNames = config
+    .get("i18nDetectPrefixNames", "i18n.t,t")
+    .split(",")
+    .map((name) => name.trim());
+
+  const i18nFunctionPatterns = i18nDetectPrefixNames.map(
+    (prefix) =>
+      new RegExp(
+        `(${prefix.replace(
+          ".",
+          "\\."
+        )}\\s*\\()\\s*(['"\`])([\\w\\-_\\.]+)\\s*(\\2|\\)|,|\\$\\{)`,
+        "g"
+      )
+  );
+
   const patterns = [
-    /(i18next\.t)\(\s*(['"`])([\w\-_\.]+)\s*(\2|\)|,|\$\{)/g,
+    ...i18nFunctionPatterns,
     /(data-i18n)="([^"]+)"/g,
     /{{(t) ['"]([^'"]+)['"]}}/g,
     /'(i18n:)([^']+)'/g,
@@ -56,15 +76,49 @@ export function scanForInuseI18nKeys({ code, fileType }) {
   return Array.from(keys);
 }
 
-export function collectAllI18nKeys({
-  code,
-  filePath,
-  fileType,
-  fileRelativePath,
-}) {
-  // plural keys
+export const collectAllI18nKeys = {
+  bind(context, config) {
+    return ({ code, filePath, fileType, fileRelativePath }) => {
+      const localeFolder = config.get("localeResourceFolder", "locale");
+      const relativePath = path.relative(localeFolder, fileRelativePath);
+      const uniqueIdentifier = relativePath
+        .replace(/\.\w+$/, "")
+        .replace(/\//g, ".");
+      const keysWithPaths = new Map();
+      let locales;
+      try {
+        locales = JSON.parse(code);
+      } catch (e) {
+        console.error("Invalid JSON code", e);
+      }
+
+      if (locales) {
+        extractKeys(locales, uniqueIdentifier, keysWithPaths, filePath);
+      }
+      // Convert the Map to an array of objects
+      return Array.from(keysWithPaths, ([key, filePath]) => ({
+        key,
+        filePath,
+      }));
+    };
+  },
+};
+
+function extractKeys(obj, prefix = "", keysWithPaths, filePath) {
+  for (const [key, value] of Object.entries(obj)) {
+    const newKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === "object" && value !== null) {
+      extractKeys(value, newKey, keysWithPaths, filePath);
+    } else {
+      keysWithPaths.set(newKey, filePath);
+    }
+  }
 }
 
-export function revisitI18nKeyPresenceInSource() {
-  // double check by search the key in source file
-}
+export const revisitI18nKeyPresenceInSource = {
+  bind(key) {
+    return ({ code }) => {
+      return code.includes(key);
+    };
+  },
+};

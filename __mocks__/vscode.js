@@ -39,7 +39,7 @@ module.exports = {
           },
           "i18nAiExtractor.i18nDetectPrefixNames": {
             type: "string",
-            default: "i18next.t",
+            default: "i18next.t,t,i18n,data-i18n,key",
             description:
               "Name list of the i18n key usages, separated by commas",
           },
