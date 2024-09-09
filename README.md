@@ -29,6 +29,20 @@ Identify potentially unlocalized strings in your code.
 - Use the command palette and search for "Scan for Unlocalized Text".
 - Results will be displayed in a side panel.
 
+### 4. Scan All Unused Keys
+
+Find unused i18n keys in your project.
+
+- Use the command palette and search for "Scan all unused i18n keys".
+- The extension will scan your project and list all unused keys.
+
+### 5. Scan All Typos
+
+Identify potential typos in your locale files.
+
+- Use the command palette and search for "Scan all typos in locale files".
+- The extension will check your locale files for possible spelling errors.
+
 ## Configuration
 
 To configure the extension, go to File > Preferences > Settings and search for "I18n AI Extractor".
@@ -42,6 +56,8 @@ Key settings include:
 - `i18nAiExtractor.unlocalizedTextPrompt`: Custom prompt for unlocalized text scanning. Use {{text}} as a placeholder for the scanned text.
 - `i18nAiExtractor.i18nFunctionName`: The name of your i18n function (default: "i18next.t").
 - `i18nAiExtractor.maxRequestSize`: Maximum size of the text to be sent to OpenAI for localization (default: 20000).
+- `i18nAiExtractor.scanFolderForUnused`: Folder to scan for unused text (default: "src").
+- `i18nAiExtractor.localeResourceFolder`: Folder containing locale resources (default: "locale").
 
 ## Usage Tips
 
@@ -56,8 +72,18 @@ Key settings include:
    - Click on the line numbers in the results to jump to the corresponding location in your code.
 
 3. **OpenAI Integration**:
+
    - To use AI-powered key suggestions, make sure to set your OpenAI API key in the extension settings.
    - You can customize the AI prompt in the settings to fit your project's naming conventions.
+
+4. **Scanning for Unused Keys**:
+
+   - Use this feature periodically to keep your locale files clean and efficient.
+   - Consider removing or commenting out unused keys to maintain a tidy codebase.
+
+5. **Checking for Typos**:
+   - Run the typo scan before releases to ensure high-quality translations.
+   - Verify suggested typos, as some technical terms or proper nouns might be flagged incorrectly.
 
 ## Troubleshooting
 
@@ -67,7 +93,7 @@ Key settings include:
 
 ## Feedback and Contributions
 
-We welcome your feedback and contributions! Please visit our [GitHub repository](https://github.com/yourusername/i18n-ai-extractor) to:
+We welcome your feedback and contributions! Please visit our [GitHub repository](https://github.com/iduane/i18n-ai-extractor) to:
 
 - Report issues
 - Suggest new features

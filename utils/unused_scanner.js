@@ -83,7 +83,7 @@ export const collectAllI18nKeys = {
       const relativePath = path.relative(localeFolder, fileRelativePath);
       const uniqueIdentifier = relativePath
         .replace(/\.\w+$/, "")
-        .replace(/\//g, ".");
+        .replace(/[\/\\]/g, ".");
       const keysWithPaths = new Map();
       let locales;
       try {
