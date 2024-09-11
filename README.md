@@ -59,6 +59,18 @@ Key settings include:
 - `i18nAiExtractor.scanFolderForUnused`: Folder to scan for unused text (default: "src").
 - `i18nAiExtractor.localeResourceFolder`: Folder containing locale resources (default: "locale").
 
+> Using Ollama
+
+You can use Ollama as an alternative to OpenAI for AI-powered suggestions. To use Ollama:
+
+1. Install Ollama on your local machine (https://ollama.ai/).
+2. Configure the extension settings:
+   - Set `i18nAiExtractor.openAIBasePath` to your Ollama API endpoint (e.g., "http://localhost:11434/v1").
+   - Set `i18nAiExtractor.openAIApiKey` to "ollama".
+   - Set `i18nAiExtractor.gptModel` to the Ollama model you want to use (e.g., "qwen2").
+
+Example configuration:
+
 ## Usage Tips
 
 1. **Extracting Locale**:

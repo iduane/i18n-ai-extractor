@@ -319,12 +319,15 @@ async function suggestKeyWithOpenAI(text, apiKey, chatTemplate) {
     async (progress) => {
       progress.report({ increment: 0 });
 
+      const gptModel = config.get("gptModel", "gpt-3.5-turbo"); // Add this line
+
+      
       try {
         progress.report({ increment: 50, message: "Querying OpenAI..." });
         const response = await axios.post(
           `${openAIBasePath}/chat/completions`,
           {
-            model: "gpt-3.5-turbo",
+            model: gptModel,
             messages: [
               {
                 role: "system",

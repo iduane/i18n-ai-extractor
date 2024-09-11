@@ -12,6 +12,7 @@ export async function findUnlocalizedText(text, config) {
   const unlocalizedTextPrompt = config.get("unlocalizedTextPrompt", "");
   const i18nFunctionName = config.get("i18nFunctionName", "i18next.t");
   const maxRequestSize = config.get("maxRequestSize", 20000);
+  const gptModel = config.get("gptModel", "gpt-3.5-turbo"); // Add this line
 
   if (!openAIApiKey) {
     vscode.window.showErrorMessage(
@@ -77,7 +78,7 @@ export async function findUnlocalizedText(text, config) {
         const response = await axios.post(
           `${openAIBasePath}/chat/completions`,
           {
-            model: "gpt-3.5-turbo",
+            model: gptModel, // Use the gptModel from config here
             messages: [
               {
                 role: "system",
