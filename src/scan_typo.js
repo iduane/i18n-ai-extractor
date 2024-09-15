@@ -50,8 +50,10 @@ export const scanAllTypos = {
             }
 
             let scannedCount = 0;
+            let allFileContents = [];
+
             for (const folderPath of folderPaths) {
-              const folderResults = await scanDirectory(
+              await scanDirectory(
                 folderPath,
                 config,
                 async ({ code, fileType, filePath }) => {
@@ -60,24 +62,24 @@ export const scanAllTypos = {
                     increment: (scannedCount / totalFilesCount) * 100,
                     message: `scanned ${scannedCount}/${totalFilesCount} locale files`,
                   });
-                  const occurrences = await scanTyposInLocalFiles({
-                    code,
-                    fileType,
-                  });
-
-                  return {
-                    filePath,
-                    occurrences: occurrences.map((occ) => ({
-                      ...occ,
-                      filePath,
-                      command: COMMANDS.JUMP_TO_FILE_LINE,
-                    })),
-                  };
+                  allFileContents.push({ code, fileType, filePath });
+                  return null; // We'll process all files at once later
                 },
-                (r) => Array.from(new Set(r.flat()))
+                (r) => r.filter(Boolean)
               );
-              results = results.concat(folderResults);
             }
+
+            // Process all files at once
+            const occurrences = await scanTyposInLocalFiles(allFileContents);
+
+            results = occurrences.map(({ filePath, typos }) => ({
+              filePath,
+              occurrences: typos.map((typo) => ({
+                ...typo,
+                filePath,
+                command: COMMANDS.JUMP_TO_FILE_LINE,
+              })),
+            }));
           }
         );
 

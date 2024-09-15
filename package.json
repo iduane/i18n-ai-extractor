@@ -325,7 +325,7 @@
     "@google-cloud/speech": "^6.7.0",
     "@vscode/test-cli": "^0.0.10",
     "axios": "^1.7.5",
-    "hunspell-spellchecker": "^1.0.2",
+    "cspell-lib": "^8.14.2",
     "node-record-lpcm16": "^1.0.1"
   }
 }
